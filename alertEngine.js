@@ -225,14 +225,6 @@ async function evaluateThreshold(rule, metricValue) {
       // Trigger if value is BELOW threshold (classic low alert)
       return metricValue < threshold;
 
-    case "less_than":
-      // Same meaning → value < threshold
-      return metricValue < threshold;
-
-    case "greater_than":
-      // Trigger when value goes ABOVE threshold
-      return metricValue > threshold;
-
     case "percentage_drop":
       // Example meaning: value is lower than X% of normal
       return metricValue <= threshold;
