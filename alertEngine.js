@@ -14,7 +14,6 @@ async function get7DayAvgForMetric(brandId, metricName, hour) {
 
     const dbName = rows[0].db_name;
 
-    // Handle derived metrics that need calculation from base columns
     if (metricName === "aov") {
       const [avgRows] = await pool.query(
         `
@@ -59,10 +58,15 @@ async function get7DayAvgForMetric(brandId, metricName, hour) {
       const num = Number(raw);
       if (Number.isNaN(num)) return null;
 
-      return Number(num.toFixed(4));
+      const rounded = Number(num.toFixed(4));
+
+      console.log(
+        `✓ conversion_rate 7-day avg for brand ${brandId}, hour ${hour}: ${rounded} from ${rowCount} rows`
+      );
+
+      return rounded;
     }
 
-    // Handle base metrics with direct column mapping
     const columnMap = {
       total_orders: "number_of_orders",
       total_atc_sessions: "number_of_atc_sessions",
@@ -87,13 +91,15 @@ async function get7DayAvgForMetric(brandId, metricName, hour) {
     );
 
     const raw = avgRows[0]?.avg_val;
-
     if (raw == null) return null;
 
     const num = Number(raw);
     if (Number.isNaN(num)) return null;
-    console.log(`7days average of ${metricName} of brandId ${brandId} is:`,num);
-    
+
+    console.log(
+      `7days average of ${metricName} of brandId ${brandId} is:`,
+      num
+    );
 
     return Number(num.toFixed(2));
   } catch (err) {
@@ -114,17 +120,31 @@ async function loadRulesForBrand(brandId) {
 }
 
 /* -------------------------------------------------------
-   Parse JSON configs
+   Parse JSON configs (robust)
 --------------------------------------------------------*/
 function parseChannelConfig(raw) {
   if (!raw) return null;
+
   if (typeof raw === "object") return raw;
+
+  if (typeof raw !== "string") {
+    console.warn("⚠ channel_config is not string or object:", raw);
+    return null;
+  }
 
   try {
     return JSON.parse(raw);
   } catch {
-    console.warn("⚠ Invalid JSON in channel_config!", raw);
-    return null;
+    try {
+      const fixed = raw
+        .trim()
+        .replace(/'/g, '"')
+        .replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":');
+      return JSON.parse(fixed);
+    } catch {
+      console.warn("⚠ Invalid JSON in channel_config:", raw);
+      return null;
+    }
   }
 }
 
@@ -207,7 +227,7 @@ function generateEmailHTML(event, rule, metricValue, avg7, dropPercent) {
         ${formatValue(metricValue)}
       </td>
     </tr>
-  `;
+ `;
 
   let thresholdDisplay = "";
   if (rule.threshold_type === "percentage_drop") {
@@ -297,7 +317,7 @@ function generateEmailHTML(event, rule, metricValue, avg7, dropPercent) {
         </p>
       </div>
 
-      <div style="background:#f3f4f6; padding:14px; text-align:center;">
+      <div style="background:#f3f4f6; padding:14px; text-align:center%;">
         <span style="font-size:12px; color:#6b7280;">
           You’re receiving this to stay ahead of store activity trends.<br>
           © ${new Date().getFullYear()} Datum Inc.
@@ -315,7 +335,7 @@ function generateEmailHTML(event, rule, metricValue, avg7, dropPercent) {
 async function sendEmail(cfg, subject, html) {
   try {
     if (!cfg || !cfg.to || !Array.isArray(cfg.to) || cfg.to.length === 0) {
-      console.error("❌ Invalid email configuration: missing 'to' array");
+      console.error("❌ Invalid email configuration: missing 'to' array", cfg);
       return;
     }
 
@@ -359,7 +379,7 @@ async function triggerAlert(rule, event, metricValue, avg7, dropPercent) {
   if (avg7 !== null && typeof avg7 === "number" && !Number.isNaN(avg7)) {
     console.log(`7-Day Average (same hour): ${avg7.toFixed(2)}`);
   } else {
-    console.log(`7-Day Average (same hour): N/A`);
+    console.log("7-Day Average (same hour): N/A");
   }
 
   if (
@@ -369,7 +389,7 @@ async function triggerAlert(rule, event, metricValue, avg7, dropPercent) {
   ) {
     console.log(`Drop Percentage: ${dropPercent.toFixed(2)}%`);
   } else {
-    console.log(`Drop Percentage: N/A`);
+    console.log("Drop Percentage: N/A");
   }
 
   console.log(`Severity: ${rule.severity}`);
@@ -390,15 +410,24 @@ async function triggerAlert(rule, event, metricValue, avg7, dropPercent) {
     [rule.id]
   );
 
+  console.log("Channels fetched for alert", rule.id, channels);
+
   for (const ch of channels) {
     if (ch.channel_type !== "email") continue;
 
+    console.log("channel_config RAW:", ch.channel_config);
+
     const cfg = parseChannelConfig(ch.channel_config);
-    if(!cfg){
-      console.log(`the cfg is null`);
+
+    if (!cfg) {
+      console.log(`the cfg is null or invalid for alert ${rule.id}`);
+      continue;
     }
-    
-    if (!cfg) continue;
+
+    if (!cfg.to || !Array.isArray(cfg.to) || cfg.to.length === 0) {
+      console.log(`❌ cfg.to invalid for alert ${rule.id}`, cfg);
+      continue;
+    }
 
     console.log(`📧 Sending email to: ${cfg.to.join(", ")}`);
     await sendEmail(cfg, rule.name, emailHTML);
@@ -419,13 +448,17 @@ async function evaluateThreshold(rule, metricValue, avg7, dropPercent) {
   const threshold = Number(rule.threshold_value);
 
   if (rule.threshold_type === "percentage_drop") {
-    if (!avg7 || dropPercent == null) return false;
-    if(dropPercent > 0) return dropPercent >= threshold;
+    if (avg7 == null || dropPercent == null || Number.isNaN(dropPercent)) {
+      return false;
+    }
+    return dropPercent >= threshold;
   }
 
   if (rule.threshold_type === "percentage_rise") {
-    if (!avg7 || dropPercent == null) return false;
-    return dropPercent <= -threshold;
+    if (avg7 == null || dropPercent == null || Number.isNaN(dropPercent)) {
+      return false;
+    }
+    return -dropPercent >= threshold;
   }
 
   return metricValue < threshold;
@@ -483,8 +516,7 @@ async function processIncomingEvent(event) {
       dropPercent
     );
 
-    console.log(shouldTrigger);
-    
+    console.log("shouldTrigger for rule", rule.id, "=", shouldTrigger);
 
     if (!shouldTrigger) continue;
 
