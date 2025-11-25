@@ -7,8 +7,8 @@ const redis = new Redis({
 
 async function test() {
   const eventAOV = {
-    brand_id: 2,
-    brand: "BBB",
+    brand_id: 1,
+    brand: "PTS",
     total_sales: 6000,
     total_orders: 10,
     aov: 600,
@@ -59,7 +59,7 @@ async function test() {
     total_atc_sessions: 100,
   };
 
-  await redis.rpush("summary_updates_queue", JSON.stringify(eventAOV));
+  await redis.rpush("summary_updates_queue", JSON.stringify(eventATC));
   console.log("Pushed!");
 }
 
