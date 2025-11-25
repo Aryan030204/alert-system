@@ -1,9 +1,5 @@
-const { Redis } = require("@upstash/redis");
-
-const redis = new Redis({
-  url: "https://resolved-goat-18924.upstash.io",
-  token: "AUnsAAIncDIzNmNiOTFjZmZiNGM0OTkwYTkwZDcwMDBhMWQ2ZDMzNnAyMTg5MjQ",
-});
+require("dotenv").config();
+const { enqueueEvent } = require("./utils/qstashPublisher");
 
 async function test() {
   const eventAOV = {
@@ -59,8 +55,8 @@ async function test() {
     total_atc_sessions: 100,
   };
 
-  await redis.rpush("summary_updates_queue", JSON.stringify(eventATC));
-  console.log("Pushed!");
+  await enqueueEvent(eventATC);
+  console.log("Enqueued via QStash!");
 }
 
 test();
