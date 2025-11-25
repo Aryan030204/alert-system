@@ -18,12 +18,6 @@ app.post(
   async (req, res) => {
     try {
       const signature = req.header("Upstash-Signature");
-      // 🔥 Bypass signature for Postman
-      if (process.env.SKIP_QSTASH_SIGNATURE === "true") {
-        const payload = JSON.parse(req.body.toString());
-        await processIncomingEvent(payload);
-        return res.status(200).json({ status: "ok", bypass: true });
-      }
       if (!signature) {
         return res.status(400).send("Missing signature header");
       }
