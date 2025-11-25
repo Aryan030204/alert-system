@@ -55,8 +55,13 @@ async function test() {
     total_atc_sessions: 100,
   };
 
+<<<<<<< HEAD
   await enqueueEvent(eventATC);
   console.log("Enqueued via QStash!");
+=======
+  await redis.rpush("summary_updates_queue", JSON.stringify(eventATC));
+  console.log("Pushed!");
+>>>>>>> 76467a6b63b84c579daeef17ec2606ce91df5d6f
 }
 
 test();
