@@ -92,7 +92,7 @@ async function get7DayAvgForMetric(brandId, metricName, hour) {
 
     const num = Number(raw);
     if (Number.isNaN(num)) return null;
-    console.log(num);
+    console.log(`7days average of ${metricName} of brandId ${brandId} is:`,num);
     
 
     return Number(num.toFixed(2));
