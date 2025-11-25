@@ -56,12 +56,17 @@ async function test() {
   };
 
 <<<<<<< HEAD
+<<<<<<< HEAD
   await enqueueEvent(eventATC);
   console.log("Enqueued via QStash!");
 =======
   await redis.rpush("summary_updates_queue", JSON.stringify(eventATC));
   console.log("Pushed!");
 >>>>>>> 76467a6b63b84c579daeef17ec2606ce91df5d6f
+=======
+  await enqueueEvent(eventATC);
+  console.log("Enqueued via QStash!");
+>>>>>>> a1b723d7dbaf8446738d5996d27e257d98cc5d95
 }
 
 test();
