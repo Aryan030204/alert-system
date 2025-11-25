@@ -394,7 +394,9 @@ async function triggerAlert(rule, event, metricValue, avg7, dropPercent) {
     if (ch.channel_type !== "email") continue;
 
     const cfg = parseChannelConfig(ch.channel_config);
-    console.log(`the cfg is ${cfg}`);
+    if(!cfg){
+      console.log(`the cfg is null`);
+    }
     
     if (!cfg) continue;
 
