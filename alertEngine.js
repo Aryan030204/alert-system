@@ -3,7 +3,116 @@ const { evaluate } = require("mathjs");
 const nodemailer = require("nodemailer");
 
 /* -------------------------------------------------------
-   Load rules for a brand
+   7-Day Rolling Average Lookup (from brand DB)
+--------------------------------------------------------*/
+async function get7DayAvgForMetric(brandId, metricName, hour) {
+  try {
+    const [rows] = await pool.query("SELECT db_name FROM brands WHERE id = ?", [
+      brandId,
+    ]);
+    if (!rows.length) return null;
+
+    const dbName = rows[0].db_name;
+
+    // Handle derived metrics that need calculation from base columns
+    if (metricName === "aov") {
+      // AOV = total_sales / total_orders
+      // Calculate average AOV from 7-day data
+      const [avgRows] = await pool.query(
+        `
+        SELECT 
+          AVG(total_sales / NULLIF(number_of_orders, 0)) AS avg_val
+        FROM ${dbName}.hour_wise_sales
+        WHERE hour = ?
+          AND date >= CURDATE() - INTERVAL 7 DAY
+          AND date < CURDATE()
+          AND number_of_orders > 0
+        `,
+        [hour]
+      );
+      return avgRows[0]?.avg_val ?? null;
+    }
+
+    if (metricName === "conversion_rate") {
+      // Conversion Rate = total_orders / total_atc_sessions (as decimal, e.g., 0.002 = 0.2%)
+      // Calculate average conversion rate from 7-day data
+      // Note: Event uses decimal format (0.002), not percentage (0.2)
+      const [avgRows] = await pool.query(
+        `
+        SELECT 
+          AVG(number_of_orders / NULLIF(number_of_atc_sessions, 0)) AS avg_val,
+          COUNT(*) AS row_count
+        FROM ${dbName}.hour_wise_sales
+        WHERE hour = ?
+          AND date >= CURDATE() - INTERVAL 7 DAY
+          AND date < CURDATE()
+          AND number_of_atc_sessions > 0
+        `,
+        [hour]
+      );
+
+      const result = avgRows[0]?.avg_val ?? null;
+      const rowCount = avgRows[0]?.row_count ?? 0;
+
+      // Convert result to number if it's not null
+      const numResult = result !== null ? Number(result) : null;
+
+      if (numResult === null) {
+        if (rowCount === 0) {
+          console.log(
+            `ℹ️ No historical data found for conversion_rate at hour ${hour} in the last 7 days for brand ${dbName}`
+          );
+        } else {
+          console.log(
+            `⚠️ conversion_rate calculation returned NULL despite ${rowCount} rows (possible division issues)`
+          );
+        }
+      } else if (!isNaN(numResult)) {
+        console.log(
+          `✓ conversion_rate 7-day avg calculated: ${numResult.toFixed(
+            4
+          )} from ${rowCount} rows`
+        );
+      }
+
+      return numResult;
+    }
+
+    // Handle base metrics with direct column mapping
+    const columnMap = {
+      total_orders: "number_of_orders",
+      total_atc_sessions: "number_of_atc_sessions",
+      total_sales: "total_sales",
+    };
+
+    const col = columnMap[metricName];
+    if (!col) {
+      console.warn(`⚠️ No column mapping for metric: ${metricName}`);
+      return null;
+    }
+
+    const [avgRows] = await pool.query(
+      `
+      SELECT AVG(${col}) AS avg_val
+      FROM ${dbName}.hour_wise_sales
+      WHERE hour = ?
+        AND date >= CURDATE() - INTERVAL 7 DAY
+        AND date < CURDATE()
+      `,
+      [hour]
+    );
+
+    return avgRows[0]?.avg_val !== null
+      ? Number(avgRows[0].avg_val.toFixed(2))
+      : null;
+  } catch (err) {
+    console.error(`🔥 7-day avg error for ${metricName}:`, err.message);
+    return null;
+  }
+}
+
+/* -------------------------------------------------------
+   Load active alerts for a brand
 --------------------------------------------------------*/
 async function loadRulesForBrand(brandId) {
   const [rules] = await pool.query(
@@ -14,7 +123,7 @@ async function loadRulesForBrand(brandId) {
 }
 
 /* -------------------------------------------------------
-   Safely parse JSON channel configs
+   Parse JSON configs
 --------------------------------------------------------*/
 function parseChannelConfig(raw) {
   if (!raw) return null;
@@ -23,13 +132,13 @@ function parseChannelConfig(raw) {
   try {
     return JSON.parse(raw);
   } catch {
-    console.warn("⚠ Invalid JSON in channel_config:", raw);
+    console.warn("⚠ Invalid JSON in channel_config!", raw);
     return null;
   }
 }
 
 /* -------------------------------------------------------
-   Compute metric value (base / derived)
+   Compute metric
 --------------------------------------------------------*/
 async function computeMetric(rule, event) {
   try {
@@ -46,128 +155,164 @@ async function computeMetric(rule, event) {
 }
 
 /* -------------------------------------------------------
-   Cooldown check
+   Cooldown protection
 --------------------------------------------------------*/
 async function checkCooldown(alertId, cooldownMinutes) {
-  const [[row]] = await pool.query(
-    `SELECT triggered_at 
-     FROM alert_history 
-     WHERE alert_id = ? 
-     ORDER BY triggered_at DESC LIMIT 1`,
+  const [rows] = await pool.query(
+    `
+      SELECT triggered_at 
+      FROM alert_history 
+      WHERE alert_id = ?
+      ORDER BY triggered_at DESC 
+      LIMIT 1
+    `,
     [alertId]
   );
 
-  if (!row) return false;
+  if (!rows.length) return false;
 
-  const minutesSince = (Date.now() - new Date(row.triggered_at)) / 60000;
-  return minutesSince < cooldownMinutes;
+  const minutes = (Date.now() - new Date(rows[0].triggered_at)) / 60000;
+  return minutes < cooldownMinutes;
 }
 
 /* -------------------------------------------------------
-   Build Human-friendly Email
+   PREMIUM EMAIL TEMPLATE
 --------------------------------------------------------*/
-function generateEmailHTML(event, rule, metricValue) {
+function generateEmailHTML(event, rule, metricValue, avg7, dropPercent) {
+  const metricLabel = rule.metric_name.replace(/_/g, " ").toUpperCase();
+
+  const hasAvg = typeof avg7 === "number" && !Number.isNaN(avg7);
+  const hasDrop = typeof dropPercent === "number" && !Number.isNaN(dropPercent);
+
+  // Format metric value based on type
+  const formatValue = (val) => {
+    if (typeof val === "number") {
+      if (val % 1 === 0) return val.toString();
+      return val.toFixed(2);
+    }
+    return val;
+  };
+
+  let metricRows = `
+    <tr>
+      <td style="padding:10px 0; color:#6b7280; font-size:15px;">Current Value</td>
+      <td style="padding:10px 0; text-align:right; font-weight:bold; color:#dc2626; font-size:15px;">
+        ${formatValue(metricValue)}
+      </td>
+    </tr>
+  `;
+
+  // Always show threshold
+  let thresholdDisplay = "";
+  if (rule.threshold_type === "percentage_drop") {
+    thresholdDisplay = `${rule.threshold_value}% drop`;
+  } else if (rule.threshold_type === "percentage_rise") {
+    thresholdDisplay = `${rule.threshold_value}% rise`;
+  } else {
+    thresholdDisplay = formatValue(rule.threshold_value);
+  }
+
+  metricRows += `
+    <tr>
+      <td style="padding:10px 0; color:#6b7280; font-size:15px;">Alert Threshold</td>
+      <td style="padding:10px 0; text-align:right; font-weight:bold; font-size:15px;">
+        ${thresholdDisplay}
+      </td>
+    </tr>
+  `;
+
+  if (hasAvg) {
+    metricRows += `
+      <tr>
+        <td style="padding:10px 0; color:#6b7280; font-size:15px;">7-Day Average (Same Hour)</td>
+        <td style="padding:10px 0; text-align:right; font-weight:bold; font-size:15px;">
+          ${formatValue(avg7)}
+        </td>
+      </tr>
+    `;
+  }
+
+  if (hasDrop) {
+    const dropColor = dropPercent > 0 ? "#e11d48" : "#10b981";
+    const dropLabel = dropPercent > 0 ? "Drop" : "Increase";
+    metricRows += `
+      <tr>
+        <td style="padding:10px 0; color:#6b7280; font-size:15px;">Percentage ${dropLabel}</td>
+        <td style="padding:10px 0; text-align:right; font-weight:bold; color:${dropColor}; font-size:15px;">
+          ${Math.abs(dropPercent).toFixed(2)}%
+        </td>
+      </tr>
+    `;
+  }
+
   return `
   <html>
-  <body style="margin:0; padding:0; background:#f0f3f9; font-family:Arial, sans-serif;">
+  <body style="margin:0; padding:0; background:#f4f6fb; font-family:Arial, sans-serif;">
+    <div style="max-width:620px; margin:30px auto; background:#ffffff;
+      border-radius:12px; overflow:hidden; box-shadow:0 6px 25px rgba(0,0,0,0.08);">
 
-    <div style="max-width:620px; margin:35px auto; background:#ffffff; border-radius:14px; overflow:hidden; box-shadow:0 6px 25px rgba(0,0,0,0.09);">
-
-      <!-- Header -->
-      <div style="
-        background: linear-gradient(135deg, #3b82f6, #6366f1);
-        padding:28px 32px;
-        color:#ffffff;
-      ">
-        <h2 style="margin:0; font-size:26px; font-weight:600;">
-          ⚠️ A Quick Heads-Up About ${event.brand}
+      <div style="background:#4f46e5; padding:26px 32px; color:#ffffff;">
+        <h2 style="margin:0; font-size:24px; font-weight:600;">
+          ⚠️ Insight alert for ${event.brand}
         </h2>
-        <p style="margin:8px 0 0; opacity:0.9; font-size:15px;">
-          Something important caught our attention today.
+        <p style="margin:6px 0 0; font-size:14px; opacity:0.9;">
+          One of your key activity signals moved more than usual.
         </p>
       </div>
 
-      <!-- Body -->
-      <div style="padding:32px; line-height:1.65; color:#374151;">
-
-        <p style="font-size:16px; margin:0 0 20px;">
-          Hi there,
-          <br><br>
-          We noticed an unusual pattern today that might need your attention.
-          Everything is working fine overall, but one of the activity indicators for your store
-          showed a sudden shift that stands out from the usual flow.
+      <div style="padding:30px; line-height:1.6; color:#374151;">
+        <p style="font-size:16px;">
+          We noticed a change in <strong>${metricLabel}</strong> that may need attention.
         </p>
 
-        <!-- Highlight Section -->
-        <div style="
-          background:#f9fafb;
-          border-left:5px solid #3b82f6;
-          padding:18px 22px;
-          border-radius:10px;
-          margin-bottom:25px;
-        ">
-          <p style="margin:0; font-size:15px;">
-            The area we are keeping an eye on:  
-            <strong style="color:#111827;">${rule.metric_name.toUpperCase()}</strong>
-          </p>
-          <p style="margin:8px 0 0; font-size:15px;">
-            Current status looks a little different than usual:
-            <strong style="color:#dc2626;">${metricValue}</strong>
+        <div style="background:#f9fafb; border-radius:10px; padding:20px;
+          border:1px solid #e5e7eb; margin-bottom:22px;">
+          
+          <h3 style="margin:0 0 16px; font-size:18px; font-weight:600; color:#111827;">Alert Details</h3>
+
+          <table style="width:100%; border-collapse:collapse;">
+            ${metricRows}
+          </table>
+        </div>
+        
+        <div style="background:#fef3c7; border-left:4px solid #f59e0b; padding:12px 16px; margin-bottom:20px; border-radius:6px;">
+          <p style="margin:0; font-size:14px; color:#92400e;">
+            <strong>Metric:</strong> ${metricLabel}<br>
+            <strong>Threshold Type:</strong> ${rule.threshold_type.replace(
+              /_/g,
+              " "
+            )}<br>
+            <strong>Severity:</strong> ${rule.severity.toUpperCase()}
           </p>
         </div>
 
-        <!-- Explanation -->
-        <p style="font-size:16px; margin:0 0 20px;">
-          This does not necessarily mean something is wrong, customers' behavior can vary
-          throughout the day. But we believe it’s worth giving it a quick glance so you stay ahead of things.
+        <p style="font-size:15px; color:#4b5563;">
+          This may be temporary, but it’s worth a quick look to ensure everything is running smoothly.
         </p>
-
-        <!-- Quick Tips -->
-        <div style="
-          background:#eef2ff;
-          padding:18px 22px;
-          border-radius:10px;
-          margin-bottom:20px;
-        ">
-          <h3 style="margin-top:0; font-size:17px; color:#4338ca;">What you can do</h3>
-          <ul style="margin:0; padding-left:20px; font-size:15px; color:#4b5563;">
-            <li>Take a quick look at your dashboard for today's performance trends.</li>
-            <li>Notice if this pattern aligns with any ongoing campaigns or changes.</li>
-            <li>If this continues, you might want to check product, traffic or offer performance.</li>
-          </ul>
-        </div>
-
-        <!-- Brand Mention -->
-        <p style="font-size:15px; color:#6b7280; margin-top:20px;">
-          We’ll keep monitoring things for ${event.brand}.  
-          If anything else stands out, we’ll notify you right away.
-        </p>
-
       </div>
 
-      <!-- Footer -->
-      <div style="
-        background:#f3f4f6;
-        padding:15px 20px;
-        text-align:center;
-        font-size:13px;
-        color:#6b7280;
-      ">
-        This message was sent to help you stay informed and in control.<br>
-        © ${new Date().getFullYear()} Datum Inc. All rights reserved.
+      <div style="background:#f3f4f6; padding:14px; text-align:center;">
+        <span style="font-size:12px; color:#6b7280;">
+          You’re receiving this to stay ahead of store activity trends.<br>
+          © ${new Date().getFullYear()} Datum Inc.
+        </span>
       </div>
-
     </div>
-
   </body>
-  </html>`;
+  </html>
+  `;
 }
 
 /* -------------------------------------------------------
-   Send email
+   Send Email
 --------------------------------------------------------*/
 async function sendEmail(cfg, subject, html) {
   try {
+    if (!cfg || !cfg.to || !Array.isArray(cfg.to) || cfg.to.length === 0) {
+      console.error("❌ Invalid email configuration: missing 'to' array");
+      return;
+    }
+
     const transporter = nodemailer.createTransport({
       service: "gmail",
       auth: {
@@ -177,7 +322,9 @@ async function sendEmail(cfg, subject, html) {
     });
 
     await transporter.sendMail({
-      from: `"Alerting System" <${cfg.smtp_user}>`,
+      from: `"Alerting System" <${
+        cfg.smtp_user || process.env.ALERT_EMAIL_USER
+      }>`,
       to: cfg.to.join(","),
       subject,
       html,
@@ -190,12 +337,48 @@ async function sendEmail(cfg, subject, html) {
 }
 
 /* -------------------------------------------------------
-   Trigger alert
+   Fire Alert
 --------------------------------------------------------*/
-async function triggerAlert(rule, event, metricValue) {
-  console.log(`🚨 Triggering alert: ${rule.name}`);
+async function triggerAlert(rule, event, metricValue, avg7, dropPercent) {
+  // Log detailed alert information before sending email
+  console.log("\n" + "=".repeat(60));
+  console.log("🚨 ALERT TRIGGERED");
+  console.log("=".repeat(60));
+  console.log(`Alert Name: ${rule.name}`);
+  console.log(`Brand: ${event.brand} (ID: ${event.brand_id})`);
+  console.log(`Metric: ${rule.metric_name} (${rule.metric_type})`);
+  console.log(`Current Value: ${metricValue}`);
+  console.log(`Threshold Type: ${rule.threshold_type}`);
+  console.log(`Threshold Value: ${rule.threshold_value}`);
 
-  const emailHTML = generateEmailHTML(event, rule, metricValue);
+  if (avg7 !== null && typeof avg7 === "number" && !Number.isNaN(avg7)) {
+    console.log(`7-Day Average (same hour): ${avg7.toFixed(2)}`);
+  } else {
+    console.log(`7-Day Average (same hour): N/A`);
+  }
+
+  if (
+    dropPercent !== null &&
+    typeof dropPercent === "number" &&
+    !Number.isNaN(dropPercent)
+  ) {
+    console.log(`Drop Percentage: ${dropPercent.toFixed(2)}%`);
+  } else {
+    console.log(`Drop Percentage: N/A`);
+  }
+
+  console.log(`Severity: ${rule.severity}`);
+  console.log(`Cooldown: ${rule.cooldown_minutes} minutes`);
+  console.log(`Timestamp: ${new Date().toISOString()}`);
+  console.log("=".repeat(60) + "\n");
+
+  const emailHTML = generateEmailHTML(
+    event,
+    rule,
+    metricValue,
+    avg7,
+    dropPercent
+  );
 
   const [channels] = await pool.query(
     "SELECT * FROM alert_channels WHERE alert_id = ?",
@@ -203,8 +386,12 @@ async function triggerAlert(rule, event, metricValue) {
   );
 
   for (const ch of channels) {
+    if (ch.channel_type !== "email") continue;
+
     const cfg = parseChannelConfig(ch.channel_config);
     if (!cfg) continue;
+
+    console.log(`📧 Sending email to: ${cfg.to.join(", ")}`);
     await sendEmail(cfg, rule.name, emailHTML);
   }
 
@@ -212,56 +399,89 @@ async function triggerAlert(rule, event, metricValue) {
     "INSERT INTO alert_history (alert_id, brand_id, payload) VALUES (?, ?, ?)",
     [rule.id, rule.brand_id, JSON.stringify(event)]
   );
+
+  console.log(`✅ Alert history recorded for alert ID: ${rule.id}\n`);
 }
 
 /* -------------------------------------------------------
-   Evaluate threshold (now supports < and > rules)
+   Threshold Evaluation
 --------------------------------------------------------*/
-async function evaluateThreshold(rule, metricValue) {
+async function evaluateThreshold(rule, metricValue, avg7, dropPercent) {
   const threshold = Number(rule.threshold_value);
 
-  switch (rule.threshold_type) {
-    case "absolute":
-      // Trigger if value is BELOW threshold (classic low alert)
-      return metricValue < threshold;
-
-    case "percentage_drop":
-      // Example meaning: value is lower than X% of normal
-      return metricValue <= threshold;
-
-    case "percentage_rise":
-      // Example meaning: value is higher than X% of normal
-      return metricValue >= threshold;
-
-    default:
-      console.warn("⚠ Unknown threshold type:", rule.threshold_type);
-      return false;
+  // For percentage-based thresholds, use drop/rise percentage
+  if (rule.threshold_type === "percentage_drop") {
+    if (!avg7 || dropPercent == null) return false;
+    return dropPercent >= threshold; // dropPercent is positive when there's a drop
   }
+
+  if (rule.threshold_type === "percentage_rise") {
+    if (!avg7 || dropPercent == null) return false;
+    return dropPercent <= -threshold; // dropPercent is negative when there's a rise
+  }
+
+  // For absolute thresholds, compare directly with metric value
+  return metricValue < threshold;
 }
 
 /* -------------------------------------------------------
-   Main Event Processing
+   Main Controller
 --------------------------------------------------------*/
 async function processIncomingEvent(event) {
-  if (typeof event === "string") {
-    event = JSON.parse(event);
-  }
+  if (typeof event === "string") event = JSON.parse(event);
 
-  console.log("📥 Incoming event:", event);
+  console.log("📥 Event Received:", event);
 
   const rules = await loadRulesForBrand(event.brand_id);
+  const hour = new Date().getHours();
+  // Metrics that need 7-day average comparison (percentage drop/rise alerts)
+  const metricsNeedingAvg = [
+    "total_orders",
+    "total_atc_sessions",
+    "total_sales",
+    "aov",
+    "conversion_rate",
+  ];
 
   for (const rule of rules) {
     const metricValue = await computeMetric(rule, event);
     if (metricValue == null) continue;
 
-    const shouldTrigger = await evaluateThreshold(rule, metricValue);
+    let avg7 = null;
+    let dropPercent = null;
+
+    // Calculate 7-day average for metrics that need percentage-based comparison
+    if (
+      metricsNeedingAvg.includes(rule.metric_name) ||
+      rule.threshold_type === "percentage_drop" ||
+      rule.threshold_type === "percentage_rise"
+    ) {
+      avg7 = await get7DayAvgForMetric(event.brand_id, rule.metric_name, hour);
+
+      // Only calculate drop percentage if we have a valid average
+      if (
+        avg7 !== null &&
+        typeof avg7 === "number" &&
+        !Number.isNaN(avg7) &&
+        avg7 > 0
+      ) {
+        dropPercent = ((avg7 - metricValue) / avg7) * 100;
+      }
+    }
+
+    const shouldTrigger = await evaluateThreshold(
+      rule,
+      metricValue,
+      avg7,
+      dropPercent
+    );
+
     if (!shouldTrigger) continue;
 
     const cooldown = await checkCooldown(rule.id, rule.cooldown_minutes);
     if (cooldown) continue;
 
-    await triggerAlert(rule, event, metricValue);
+    await triggerAlert(rule, event, metricValue, avg7, dropPercent);
   }
 }
 
