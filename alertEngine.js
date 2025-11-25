@@ -92,6 +92,8 @@ async function get7DayAvgForMetric(brandId, metricName, hour) {
 
     const num = Number(raw);
     if (Number.isNaN(num)) return null;
+    console.log(num);
+    
 
     return Number(num.toFixed(2));
   } catch (err) {
@@ -141,6 +143,23 @@ async function computeMetric(rule, event) {
     console.error("❌ Metric computation error:", err.message);
   }
   return null;
+}
+
+function normalizeEventKeys(event) {
+  if (!event || typeof event !== "object") return event;
+
+  const normalized = {};
+
+  for (const [key, value] of Object.entries(event)) {
+    normalized[key] = value;
+
+    const snake = key.replace(/[A-Z]/g, (char) => `_${char.toLowerCase()}`);
+    if (snake !== key && normalized[snake] === undefined) {
+      normalized[snake] = value;
+    }
+  }
+
+  return normalized;
 }
 
 /* -------------------------------------------------------
@@ -397,7 +416,7 @@ async function evaluateThreshold(rule, metricValue, avg7, dropPercent) {
 
   if (rule.threshold_type === "percentage_drop") {
     if (!avg7 || dropPercent == null) return false;
-    return dropPercent >= threshold;
+    if(dropPercent > 0) return dropPercent >= threshold;
   }
 
   if (rule.threshold_type === "percentage_rise") {
@@ -413,6 +432,8 @@ async function evaluateThreshold(rule, metricValue, avg7, dropPercent) {
 --------------------------------------------------------*/
 async function processIncomingEvent(event) {
   if (typeof event === "string") event = JSON.parse(event);
+
+  event = normalizeEventKeys(event);
 
   console.log("📥 Event Received:", event);
 
@@ -437,8 +458,8 @@ async function processIncomingEvent(event) {
     if (
       metricsNeedingAvg.includes(rule.metric_name) ||
       rule.threshold_type === "percentage_drop" ||
-      rule.threshold_type === "percentage_rise")
-    {
+      rule.threshold_type === "percentage_rise"
+    ) {
       avg7 = await get7DayAvgForMetric(event.brand_id, rule.metric_name, hour);
 
       if (
@@ -457,6 +478,9 @@ async function processIncomingEvent(event) {
       avg7,
       dropPercent
     );
+
+    console.log(shouldTrigger);
+    
 
     if (!shouldTrigger) continue;
 
