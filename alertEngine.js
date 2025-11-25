@@ -16,8 +16,6 @@ async function get7DayAvgForMetric(brandId, metricName, hour) {
 
     // Handle derived metrics that need calculation from base columns
     if (metricName === "aov") {
-      // AOV = total_sales / total_orders
-      // Calculate average AOV from 7-day data
       const [avgRows] = await pool.query(
         `
         SELECT 
@@ -30,13 +28,15 @@ async function get7DayAvgForMetric(brandId, metricName, hour) {
         `,
         [hour]
       );
-      return avgRows[0]?.avg_val ?? null;
+
+      const raw = avgRows[0]?.avg_val;
+      if (raw == null) return null;
+
+      const num = Number(raw);
+      return Number.isNaN(num) ? null : Number(num.toFixed(2));
     }
 
     if (metricName === "conversion_rate") {
-      // Conversion Rate = total_orders / total_atc_sessions (as decimal, e.g., 0.002 = 0.2%)
-      // Calculate average conversion rate from 7-day data
-      // Note: Event uses decimal format (0.002), not percentage (0.2)
       const [avgRows] = await pool.query(
         `
         SELECT 
@@ -51,31 +51,15 @@ async function get7DayAvgForMetric(brandId, metricName, hour) {
         [hour]
       );
 
-      const result = avgRows[0]?.avg_val ?? null;
+      const raw = avgRows[0]?.avg_val;
       const rowCount = avgRows[0]?.row_count ?? 0;
 
-      // Convert result to number if it's not null
-      const numResult = result !== null ? Number(result) : null;
+      if (raw == null) return null;
 
-      if (numResult === null) {
-        if (rowCount === 0) {
-          console.log(
-            `ℹ️ No historical data found for conversion_rate at hour ${hour} in the last 7 days for brand ${dbName}`
-          );
-        } else {
-          console.log(
-            `⚠️ conversion_rate calculation returned NULL despite ${rowCount} rows (possible division issues)`
-          );
-        }
-      } else if (!isNaN(numResult)) {
-        console.log(
-          `✓ conversion_rate 7-day avg calculated: ${numResult.toFixed(
-            4
-          )} from ${rowCount} rows`
-        );
-      }
+      const num = Number(raw);
+      if (Number.isNaN(num)) return null;
 
-      return numResult;
+      return Number(num.toFixed(4));
     }
 
     // Handle base metrics with direct column mapping
@@ -102,9 +86,14 @@ async function get7DayAvgForMetric(brandId, metricName, hour) {
       [hour]
     );
 
-    return avgRows[0]?.avg_val !== null
-      ? Number(avgRows[0].avg_val.toFixed(2))
-      : null;
+    const raw = avgRows[0]?.avg_val;
+
+    if (raw == null) return null;
+
+    const num = Number(raw);
+    if (Number.isNaN(num)) return null;
+
+    return Number(num.toFixed(2));
   } catch (err) {
     console.error(`🔥 7-day avg error for ${metricName}:`, err.message);
     return null;
@@ -184,7 +173,6 @@ function generateEmailHTML(event, rule, metricValue, avg7, dropPercent) {
   const hasAvg = typeof avg7 === "number" && !Number.isNaN(avg7);
   const hasDrop = typeof dropPercent === "number" && !Number.isNaN(dropPercent);
 
-  // Format metric value based on type
   const formatValue = (val) => {
     if (typeof val === "number") {
       if (val % 1 === 0) return val.toString();
@@ -202,7 +190,6 @@ function generateEmailHTML(event, rule, metricValue, avg7, dropPercent) {
     </tr>
   `;
 
-  // Always show threshold
   let thresholdDisplay = "";
   if (rule.threshold_type === "percentage_drop") {
     thresholdDisplay = `${rule.threshold_value}% drop`;
@@ -340,7 +327,6 @@ async function sendEmail(cfg, subject, html) {
    Fire Alert
 --------------------------------------------------------*/
 async function triggerAlert(rule, event, metricValue, avg7, dropPercent) {
-  // Log detailed alert information before sending email
   console.log("\n" + "=".repeat(60));
   console.log("🚨 ALERT TRIGGERED");
   console.log("=".repeat(60));
@@ -409,18 +395,16 @@ async function triggerAlert(rule, event, metricValue, avg7, dropPercent) {
 async function evaluateThreshold(rule, metricValue, avg7, dropPercent) {
   const threshold = Number(rule.threshold_value);
 
-  // For percentage-based thresholds, use drop/rise percentage
   if (rule.threshold_type === "percentage_drop") {
     if (!avg7 || dropPercent == null) return false;
-    return dropPercent >= threshold; // dropPercent is positive when there's a drop
+    return dropPercent >= threshold;
   }
 
   if (rule.threshold_type === "percentage_rise") {
     if (!avg7 || dropPercent == null) return false;
-    return dropPercent <= -threshold; // dropPercent is negative when there's a rise
+    return dropPercent <= -threshold;
   }
 
-  // For absolute thresholds, compare directly with metric value
   return metricValue < threshold;
 }
 
@@ -434,7 +418,7 @@ async function processIncomingEvent(event) {
 
   const rules = await loadRulesForBrand(event.brand_id);
   const hour = new Date().getHours();
-  // Metrics that need 7-day average comparison (percentage drop/rise alerts)
+
   const metricsNeedingAvg = [
     "total_orders",
     "total_atc_sessions",
@@ -450,15 +434,13 @@ async function processIncomingEvent(event) {
     let avg7 = null;
     let dropPercent = null;
 
-    // Calculate 7-day average for metrics that need percentage-based comparison
     if (
       metricsNeedingAvg.includes(rule.metric_name) ||
       rule.threshold_type === "percentage_drop" ||
-      rule.threshold_type === "percentage_rise"
-    ) {
+      rule.threshold_type === "percentage_rise")
+    {
       avg7 = await get7DayAvgForMetric(event.brand_id, rule.metric_name, hour);
 
-      // Only calculate drop percentage if we have a valid average
       if (
         avg7 !== null &&
         typeof avg7 === "number" &&
