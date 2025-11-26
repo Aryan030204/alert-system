@@ -39,7 +39,7 @@ async function get7DayAvgForMetric(brandId, metricName, hour) {
       const [avgRows] = await pool.query(
         `
         SELECT 
-          AVG(number_of_orders / NULLIF(number_of_atc_sessions, 0))*100 AS avg_val,
+          AVG(number_of_orders / NULLIF(number_of_sessions, 0))*100 AS avg_val,
           COUNT(*) AS row_count
         FROM ${dbName}.hour_wise_sales
         WHERE hour = ?
