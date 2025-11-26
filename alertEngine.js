@@ -71,6 +71,7 @@ async function get7DayAvgForMetric(brandId, metricName, hour) {
       total_orders: "number_of_orders",
       total_atc_sessions: "number_of_atc_sessions",
       total_sales: "total_sales",
+      total_sessions: "total_sessions",
     };
 
     const col = columnMap[metricName];
