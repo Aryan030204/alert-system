@@ -258,7 +258,7 @@ async function checkCooldown(alertId, cooldownMinutes) {
 /* -------------------------------------------------------
    PREMIUM EMAIL TEMPLATE
 --------------------------------------------------------*/
-function generateEmailHTML(event, rule, metricValue, avgHistoric, dropPercent) {
+function generateEmailHTML(event, rule, metricValue, avgHistoric, dropPercent, alertHour) {
   const metricLabel = rule.metric_name.replace(/_/g, " ").toUpperCase();
 
   const hasAvg =
@@ -358,11 +358,9 @@ function generateEmailHTML(event, rule, metricValue, avgHistoric, dropPercent) {
         <div style="background:#fef3c7; border-left:4px solid #f59e0b; padding:12px 16px; margin-bottom:20px; border-radius:6px;">
           <p style="margin:0; font-size:14px; color:#92400e;">
             <strong>Metric:</strong> ${metricLabel}<br>
-            <strong>Threshold Type:</strong> ${rule.threshold_type.replace(
-              /_/g,
-              " "
-            )}<br>
+            <strong>Threshold Type:</strong> ${rule.threshold_type.replace(/_/g, " ")}<br>
             <strong>Severity:</strong> ${rule.severity.toUpperCase()}
+            ${typeof alertHour === "number" ? `<br>            <strong>Hour:</strong> ${alertHour} (data up to hour ${Math.max(0, alertHour - 1)}h)` : ""}
           </p>
         </div>
 
@@ -419,7 +417,7 @@ async function sendEmail(cfg, subject, html) {
 /* -------------------------------------------------------
    Fire Alert
 --------------------------------------------------------*/
-async function triggerAlert(rule, event, metricValue, avgHistoric, dropPercent) {
+async function triggerAlert(rule, event, metricValue, avgHistoric, dropPercent, alertHour) {
   console.log("\n" + "=".repeat(60));
   console.log("🚨 ALERT TRIGGERED");
   console.log("=".repeat(60));
@@ -460,7 +458,8 @@ async function triggerAlert(rule, event, metricValue, avgHistoric, dropPercent) 
     rule,
     metricValue,
     avgHistoric,
-    dropPercent
+    dropPercent,
+    alertHour
   );
 
   const [channels] = await pool.query(
@@ -602,7 +601,7 @@ async function processIncomingEvent(event) {
     const cooldown = await checkCooldown(rule.id, rule.cooldown_minutes);
     if (cooldown) continue;
 
-    await triggerAlert(rule, event, metricValue, avgHistoric, dropPercent);
+    await triggerAlert(rule, event, metricValue, avgHistoric, dropPercent, hourCutoff);
   }
 }
 
