@@ -542,8 +542,43 @@ async function processIncomingEvent(event) {
 
   const rules = await loadRulesForBrand(event.brand_id);
 
-  // treat current hour as the upper bound; we use hours < hourCutoff (0..hourCutoff-1)
-  const hourCutoff = new Date().getHours();
+  // hourCutoff: upper bound exclusive. Prefer `event.hour` (ETL-provided) if present and valid.
+  // Otherwise use India local time (IST) as the fallback so alerts align with India hours.
+  // We aggregate hours < hourCutoff (0..hourCutoff-1) to include only fully-completed hours.
+  const serverHour = new Date().getHours();
+
+  // compute IST hour (0..23) without extra deps
+  const istHour = Number(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Kolkata",
+      hour: "2-digit",
+      hour12: false,
+    }).format(new Date())
+  );
+
+  // validate event.hour if provided
+  let hourCutoff;
+  let hourSource = "ist";
+  if (
+    event &&
+    typeof event.hour === "number" &&
+    Number.isInteger(event.hour) &&
+    event.hour >= 0 &&
+    event.hour <= 23
+  ) {
+    hourCutoff = event.hour;
+    hourSource = "event";
+  } else {
+    hourCutoff = istHour;
+    hourSource = "ist";
+  }
+
+  console.log(
+    `Using hourCutoff=${hourCutoff} (aggregating hours 0..${Math.max(
+      0,
+      hourCutoff - 1
+    )}). serverHour=${serverHour}, istHour=${istHour}, hourSource=${hourSource}`
+  );
 
   const metricsNeedingAvg = [
     "total_orders",
