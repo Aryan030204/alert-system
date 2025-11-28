@@ -14,7 +14,6 @@ async function getHistoricalAvgForMetric(
   lookbackDays
 ) {
   try {
-    // no completed hours yet
     if (hourCutoff <= 0) return null;
 
     const [rows] = await pool.query(
@@ -26,7 +25,6 @@ async function getHistoricalAvgForMetric(
     const dbName = rows[0].db_name;
     const days = Number(lookbackDays) > 0 ? Number(lookbackDays) : 7;
 
-    // AOV: total_sales / total_orders (on daily aggregates)
     if (metricName === "aov") {
       const [avgRows] = await pool.query(
         `
@@ -64,7 +62,6 @@ async function getHistoricalAvgForMetric(
       return rounded;
     }
 
-    // Conversion Rate: (total_orders / total_sessions) * 100 (daily aggregates)
     if (metricName === "conversion_rate") {
       const [avgRows] = await pool.query(
         `
@@ -103,7 +100,6 @@ async function getHistoricalAvgForMetric(
       return rounded;
     }
 
-    // Base metrics: use daily SUM() then AVG across days
     const columnMap = {
       total_orders: "number_of_orders",
       total_atc_sessions: "number_of_atc_sessions",
@@ -160,7 +156,7 @@ async function getHistoricalAvgForMetric(
 }
 
 /* -------------------------------------------------------
-   Load active alerts for a brand
+   Load active alerts
 --------------------------------------------------------*/
 async function loadRulesForBrand(brandId) {
   const [rules] = await pool.query(
@@ -171,17 +167,14 @@ async function loadRulesForBrand(brandId) {
 }
 
 /* -------------------------------------------------------
-   Parse JSON configs (robust)
+   Parse JSON config
 --------------------------------------------------------*/
 function parseChannelConfig(raw) {
   if (!raw) return null;
 
   if (typeof raw === "object") return raw;
 
-  if (typeof raw !== "string") {
-    console.warn("⚠ channel_config is not string or object:", raw);
-    return null;
-  }
+  if (typeof raw !== "string") return null;
 
   try {
     return JSON.parse(raw);
@@ -193,15 +186,13 @@ function parseChannelConfig(raw) {
         .replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":');
       return JSON.parse(fixed);
     } catch {
-      console.warn("⚠ Invalid JSON in channel_config:", raw);
       return null;
     }
   }
 }
 
 /* -------------------------------------------------------
-   Compute metric from incoming event
-   (today's value – your ETL already sends 0..currentHour data)
+   Compute metric
 --------------------------------------------------------*/
 async function computeMetric(rule, event) {
   try {
@@ -235,7 +226,7 @@ function normalizeEventKeys(event) {
 }
 
 /* -------------------------------------------------------
-   Cooldown protection
+   Cooldown check
 --------------------------------------------------------*/
 async function checkCooldown(alertId, cooldownMinutes) {
   const [rows] = await pool.query(
@@ -256,7 +247,7 @@ async function checkCooldown(alertId, cooldownMinutes) {
 }
 
 /* -------------------------------------------------------
-   PREMIUM EMAIL TEMPLATE
+   HTML Template (UPDATED: Added brand & app link)
 --------------------------------------------------------*/
 function generateEmailHTML(event, rule, metricValue, avgHistoric, dropPercent) {
   const metricLabel = rule.metric_name.replace(/_/g, " ").toUpperCase();
@@ -354,21 +345,17 @@ function generateEmailHTML(event, rule, metricValue, avgHistoric, dropPercent) {
             ${metricRows}
           </table>
         </div>
-        
-        <div style="background:#fef3c7; border-left:4px solid #f59e0b; padding:12px 16px; margin-bottom:20px; border-radius:6px;">
-          <p style="margin:0; font-size:14px; color:#92400e;">
-            <strong>Metric:</strong> ${metricLabel}<br>
-            <strong>Threshold Type:</strong> ${rule.threshold_type.replace(
-              /_/g,
-              " "
-            )}<br>
-            <strong>Severity:</strong> ${rule.severity.toUpperCase()}
-          </p>
-        </div>
 
-        <p style="font-size:15px; color:#4b5563;">
-          This may be temporary, but it’s worth a quick look to ensure everything is running smoothly.
+        <!-- Added Datum App Link -->
+        <p style="font-size:15px; color:#4b5563; margin-top:20px;">
+          View full insights on Datum: <br>
+          <a href="https://datum.trytechit.co/" 
+             style="color:#4f46e5; font-weight:bold;" 
+             target="_blank">
+             https://datum.trytechit.co/
+          </a>
         </p>
+
       </div>
 
       <div style="background:#f3f4f6; padding:14px; text-align:center%;">
@@ -384,7 +371,7 @@ function generateEmailHTML(event, rule, metricValue, avgHistoric, dropPercent) {
 }
 
 /* -------------------------------------------------------
-   Send Email
+   Send Email (UPDATED SUBJECT)
 --------------------------------------------------------*/
 async function sendEmail(cfg, subject, html) {
   try {
@@ -392,6 +379,8 @@ async function sendEmail(cfg, subject, html) {
       console.error("❌ Invalid email configuration: missing 'to' array", cfg);
       return;
     }
+
+    const newSubject = `${subject} - ${cfg.brand || ""}`.trim();
 
     const transporter = nodemailer.createTransport({
       service: "gmail",
@@ -406,7 +395,7 @@ async function sendEmail(cfg, subject, html) {
         cfg.smtp_user || process.env.ALERT_EMAIL_USER
       }>`,
       to: cfg.to.join(","),
-      subject,
+      subject: newSubject,
       html,
     });
 
@@ -417,7 +406,7 @@ async function sendEmail(cfg, subject, html) {
 }
 
 /* -------------------------------------------------------
-   Fire Alert
+   Trigger Alert
 --------------------------------------------------------*/
 async function triggerAlert(rule, event, metricValue, avgHistoric, dropPercent) {
   console.log("\n" + "=".repeat(60));
@@ -435,7 +424,9 @@ async function triggerAlert(rule, event, metricValue, avgHistoric, dropPercent) 
     typeof avgHistoric === "number" &&
     !Number.isNaN(avgHistoric)
   ) {
-    console.log(`Historical Avg (${rule.lookback_days} days): ${avgHistoric.toFixed(2)}`);
+    console.log(
+      `Historical Avg (${rule.lookback_days} days): ${avgHistoric.toFixed(2)}`
+    );
   } else {
     console.log("Historical Avg: N/A");
   }
@@ -476,18 +467,10 @@ async function triggerAlert(rule, event, metricValue, avgHistoric, dropPercent) 
     console.log("channel_config RAW:", ch.channel_config);
 
     const cfg = parseChannelConfig(ch.channel_config);
+    if (!cfg) continue;
 
-    if (!cfg) {
-      console.log(`the cfg is null or invalid for alert ${rule.id}`);
-      continue;
-    }
+    cfg.brand = event.brand; // pass brand to email sender
 
-    if (!cfg.to || !Array.isArray(cfg.to) || cfg.to.length === 0) {
-      console.log(`❌ cfg.to invalid for alert ${rule.id}`, cfg);
-      continue;
-    }
-
-    console.log(`📧 Sending email to: ${cfg.to.join(", ")}`);
     await sendEmail(cfg, rule.name, emailHTML);
   }
 
@@ -527,7 +510,6 @@ async function evaluateThreshold(rule, metricValue, avgHistoric, dropPercent) {
     return -dropPercent >= threshold;
   }
 
-  // absolute threshold (legacy)
   return metricValue < threshold;
 }
 
@@ -543,7 +525,6 @@ async function processIncomingEvent(event) {
 
   const rules = await loadRulesForBrand(event.brand_id);
 
-  // treat current hour as the upper bound; we use hours < hourCutoff (0..hourCutoff-1)
   const hourCutoff = new Date().getHours();
 
   const metricsNeedingAvg = [
