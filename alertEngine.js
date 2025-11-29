@@ -581,11 +581,11 @@ async function processIncomingEvent(event) {
   );
 
   const metricsNeedingAvg = [
-    "total_orders",
-    "total_atc_sessions",
-    "total_sessions",
-    "total_sales",
-    "aov",
+    // "total_orders",
+    // "total_atc_sessions",
+    // "total_sessions",
+    // "total_sales",
+    // "aov",
     "conversion_rate",
   ];
 
