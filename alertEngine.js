@@ -605,16 +605,16 @@ async function processIncomingEvent(event) {
   );
 
   const metricsNeedingAvg = [
-    // "total_orders",
-    // "total_atc_sessions",
-    // "total_sessions",
-    // "total_sales",
-    // "aov",
+    "total_orders",
+    "total_atc_sessions",
+    "total_sessions",
+    "total_sales",
+    "aov",
     "conversion_rate",
   ];
 
   for (const rule of rules) {
-    if (rule.metric_name !== "conversion_rate") continue; //skip all metrics except conversion_rate
+    // if (rule.metric_name !== "conversion_rate") continue; //skip all metrics except conversion_rate
     const metricValue = await computeMetric(rule, event);
     if (metricValue == null) continue;
 
