@@ -31,18 +31,19 @@ async function getHistoricalAvgForMetric(
         `
         SELECT 
           AVG(daily_aov) AS avg_val,
-          COUNT(*)       AS day_count
+          COUNT(*) AS day_count
         FROM (
           SELECT 
             date,
             SUM(total_sales) / NULLIF(SUM(number_of_orders), 0) AS daily_aov
           FROM ${dbName}.hour_wise_sales
-          WHERE date >= CURDATE() - INTERVAL ? DAY
-            AND date < CURDATE()
+          WHERE date >= DATE(CONVERT_TZ(NOW(), 'UTC', 'Asia/Kolkata')) - INTERVAL ? DAY
+            AND date < DATE(CONVERT_TZ(NOW(), 'UTC', 'Asia/Kolkata'))
             AND hour < ?
           GROUP BY date
           HAVING SUM(number_of_orders) > 0
-        ) AS t
+        ) AS t;
+
         `,
         [days, hourCutoff]
       );
@@ -71,17 +72,17 @@ async function getHistoricalAvgForMetric(
           AVG(daily_cvr) AS avg_val,
           COUNT(*)       AS day_count
         FROM (
-          SELECT 
-            date,
-            (SUM(number_of_orders) / NULLIF(SUM(number_of_sessions), 0)) * 100 
-              AS daily_cvr
-          FROM ${dbName}.hour_wise_sales
-          WHERE date >= CURDATE() - INTERVAL ? DAY
-            AND date < CURDATE()
-            AND hour < ?
-          GROUP BY date
-          HAVING SUM(number_of_sessions) > 0
-        ) AS t
+            SELECT 
+                date,
+                (SUM(number_of_orders) / NULLIF(SUM(number_of_sessions), 0)) * 100 
+                    AS daily_cvr
+            FROM ${dbName}.hour_wise_sales
+            WHERE date >= DATE(CONVERT_TZ(NOW(), 'UTC', 'Asia/Kolkata')) - INTERVAL ? DAY
+              AND date <  DATE(CONVERT_TZ(NOW(), 'UTC', 'Asia/Kolkata'))
+              AND hour < ?
+            GROUP BY date
+            HAVING SUM(number_of_sessions) > 0
+        ) AS t;
         `,
         [days, hourCutoff]
       );
@@ -119,18 +120,19 @@ async function getHistoricalAvgForMetric(
     const [avgRows] = await pool.query(
       `
       SELECT 
-        AVG(daily_val) AS avg_val,
-        COUNT(*)       AS day_count
+          AVG(daily_val) AS avg_val,
+          COUNT(*)       AS day_count
       FROM (
-        SELECT 
-          date,
-          SUM(${col}) AS daily_val
-        FROM ${dbName}.hour_wise_sales
-        WHERE date >= CURDATE() - INTERVAL ? DAY
-          AND date < CURDATE()
-          AND hour < ?
-        GROUP BY date
-      ) AS t
+          SELECT 
+              date,
+              SUM(${col}) AS daily_val
+          FROM ${dbName}.hour_wise_sales
+          WHERE date >= DATE(CONVERT_TZ(NOW(), 'UTC', 'Asia/Kolkata')) - INTERVAL ? DAY
+            AND date <  DATE(CONVERT_TZ(NOW(), 'UTC', 'Asia/Kolkata'))
+            AND hour < ?
+          GROUP BY date
+      ) AS t;
+
       `,
       [days, hourCutoff]
     );
