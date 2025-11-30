@@ -17,10 +17,9 @@ async function getHistoricalAvgForMetric(
     // no completed hours yet
     if (hourCutoff <= 0) return null;
 
-    const [rows] = await pool.query(
-      "SELECT db_name FROM brands WHERE id = ?",
-      [brandId]
-    );
+    const [rows] = await pool.query("SELECT db_name FROM brands WHERE id = ?", [
+      brandId,
+    ]);
     if (!rows.length) return null;
 
     const dbName = rows[0].db_name;
@@ -151,10 +150,7 @@ async function getHistoricalAvgForMetric(
     );
     return rounded;
   } catch (err) {
-    console.error(
-      `🔥 historical avg error for ${metricName}:`,
-      err.message
-    );
+    console.error(`🔥 historical avg error for ${metricName}:`, err.message);
     return null;
   }
 }
@@ -258,13 +254,18 @@ async function checkCooldown(alertId, cooldownMinutes) {
 /* -------------------------------------------------------
    PREMIUM EMAIL TEMPLATE
 --------------------------------------------------------*/
-function generateEmailHTML(event, rule, metricValue, avgHistoric, dropPercent, alertHour) {
+function generateEmailHTML(
+  event,
+  rule,
+  metricValue,
+  avgHistoric,
+  dropPercent,
+  alertHour
+) {
   const metricLabel = rule.metric_name.replace(/_/g, " ").toUpperCase();
 
-  const hasAvg =
-    typeof avgHistoric === "number" && !Number.isNaN(avgHistoric);
-  const hasDrop =
-    typeof dropPercent === "number" && !Number.isNaN(dropPercent);
+  const hasAvg = typeof avgHistoric === "number" && !Number.isNaN(avgHistoric);
+  const hasDrop = typeof dropPercent === "number" && !Number.isNaN(dropPercent);
 
   const formatValue = (val) => {
     if (typeof val === "number") {
@@ -304,7 +305,9 @@ function generateEmailHTML(event, rule, metricValue, avgHistoric, dropPercent, a
   if (hasAvg) {
     metricRows += `
       <tr>
-        <td style="padding:10px 0; color:#6b7280; font-size:15px;">Historical Avg (${rule.lookback_days} days)</td>
+        <td style="padding:10px 0; color:#6b7280; font-size:15px;">Historical Avg (${
+          rule.lookback_days
+        } days)</td>
         <td style="padding:10px 0; text-align:right; font-weight:bold; font-size:15px;">
           ${formatValue(avgHistoric)}
         </td>
@@ -358,9 +361,19 @@ function generateEmailHTML(event, rule, metricValue, avgHistoric, dropPercent, a
         <div style="background:#fef3c7; border-left:4px solid #f59e0b; padding:12px 16px; margin-bottom:20px; border-radius:6px;">
           <p style="margin:0; font-size:14px; color:#92400e;">
             <strong>Metric:</strong> ${metricLabel}<br>
-            <strong>Threshold Type:</strong> ${rule.threshold_type.replace(/_/g, " ")}<br>
+            <strong>Threshold Type:</strong> ${rule.threshold_type.replace(
+              /_/g,
+              " "
+            )}<br>
             <strong>Severity:</strong> ${rule.severity.toUpperCase()}
-            ${typeof alertHour === "number" ? `<br>            <strong>Hour:</strong> ${alertHour} (data up to hour ${Math.max(0, alertHour - 1)}h)` : ""}
+            ${
+              typeof alertHour === "number"
+                ? `<br>            <strong>Hour:</strong> ${alertHour} (data up to hour ${Math.max(
+                    0,
+                    alertHour - 1
+                  )}h)`
+                : ""
+            }
           </p>
         </div>
 
@@ -417,7 +430,14 @@ async function sendEmail(cfg, subject, html) {
 /* -------------------------------------------------------
    Fire Alert
 --------------------------------------------------------*/
-async function triggerAlert(rule, event, metricValue, avgHistoric, dropPercent, alertHour) {
+async function triggerAlert(
+  rule,
+  event,
+  metricValue,
+  avgHistoric,
+  dropPercent,
+  alertHour
+) {
   console.log("\n" + "=".repeat(60));
   console.log("🚨 ALERT TRIGGERED");
   console.log("=".repeat(60));
@@ -433,7 +453,9 @@ async function triggerAlert(rule, event, metricValue, avgHistoric, dropPercent, 
     typeof avgHistoric === "number" &&
     !Number.isNaN(avgHistoric)
   ) {
-    console.log(`Historical Avg (${rule.lookback_days} days): ${avgHistoric.toFixed(2)}`);
+    console.log(
+      `Historical Avg (${rule.lookback_days} days): ${avgHistoric.toFixed(2)}`
+    );
   } else {
     console.log("Historical Avg: N/A");
   }
@@ -590,6 +612,7 @@ async function processIncomingEvent(event) {
   ];
 
   for (const rule of rules) {
+    if (rule.metric_name !== "conversion_rate") continue; //skip all metrics except conversion_rate
     const metricValue = await computeMetric(rule, event);
     if (metricValue == null) continue;
 
@@ -641,7 +664,14 @@ async function processIncomingEvent(event) {
       continue;
     }
 
-    await triggerAlert(rule, event, metricValue, avgHistoric, dropPercent, hourCutoff);
+    await triggerAlert(
+      rule,
+      event,
+      metricValue,
+      avgHistoric,
+      dropPercent,
+      hourCutoff
+    );
   }
 }
 
