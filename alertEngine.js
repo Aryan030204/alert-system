@@ -307,9 +307,7 @@ function generateEmailHTML(
   if (hasAvg) {
     metricRows += `
       <tr>
-        <td style="padding:10px 0; color:#6b7280; font-size:15px;">Historical Avg (${
-          rule.lookback_days
-        } days)</td>
+        <td style="padding:10px 0; color:#6b7280; font-size:15px;">Historical Avg (${rule.lookback_days} days)</td>
         <td style="padding:10px 0; text-align:right; font-weight:bold; font-size:15px;">
           ${formatValue(avgHistoric)}
         </td>
@@ -372,7 +370,7 @@ function generateEmailHTML(
               typeof alertHour === "number"
                 ? `<br>            <strong>Hour:</strong> ${alertHour} (data up to hour ${Math.max(
                     0,
-                    alertHour - 1
+                    alertHour
                   )}h)`
                 : ""
             }
@@ -386,7 +384,6 @@ function generateEmailHTML(
 
       <div style="background:#f3f4f6; padding:14px; text-align:center%;">
         <span style="font-size:12px; color:#6b7280;">
-          You’re receiving this to stay ahead of store activity trends.<br>
           © ${new Date().getFullYear()} Datum Inc.
         </span>
       </div>
@@ -510,8 +507,28 @@ async function triggerAlert(
       continue;
     }
 
+    // ---------- SUBJECT FORMAT ----------
+    const metricDisplayName = rule.metric_name.replace(/_/g, " ");
+    const subjectMetricName =
+      metricDisplayName.charAt(0).toUpperCase() + metricDisplayName.slice(1);
+
+    const dropVal =
+      dropPercent !== null &&
+      typeof dropPercent === "number" &&
+      !Number.isNaN(dropPercent)
+        ? Math.abs(dropPercent).toFixed(2)
+        : "0.00";
+
+    const endHour =
+      typeof alertHour === "number" && !Number.isNaN(alertHour)
+        ? Math.max(0, alertHour)
+        : 0;
+
+    const formattedSubject = `${subjectMetricName} Alert | ${dropVal}% Drop | ${event.brand} | 0 - ${endHour} Hours`;
+    // -----------------------------------
+
     console.log(`📧 Sending email to: ${cfg.to.join(", ")}`);
-    await sendEmail(cfg, rule.name, emailHTML);
+    await sendEmail(cfg, formattedSubject, emailHTML);
   }
 
   await pool.query(
@@ -614,7 +631,6 @@ async function processIncomingEvent(event) {
   ];
 
   for (const rule of rules) {
-    // if (rule.metric_name !== "conversion_rate") continue; //skip all metrics except conversion_rate
     const metricValue = await computeMetric(rule, event);
     if (metricValue == null) continue;
 
