@@ -264,6 +264,7 @@ function generateEmailHTML(
   dropPercent,
   alertHour
 ) {
+  const brandName = String(event.brand || "").toUpperCase();
   const metricLabel = rule.metric_name.replace(/_/g, " ").toUpperCase();
 
   const hasAvg = typeof avgHistoric === "number" && !Number.isNaN(avgHistoric);
@@ -307,7 +308,9 @@ function generateEmailHTML(
   if (hasAvg) {
     metricRows += `
       <tr>
-        <td style="padding:10px 0; color:#6b7280; font-size:15px;">Historical Avg (${rule.lookback_days} days)</td>
+        <td style="padding:10px 0; color:#6b7280; font-size:15px;">Historical Avg (${
+          rule.lookback_days
+        } days)</td>
         <td style="padding:10px 0; text-align:right; font-weight:bold; font-size:15px;">
           ${formatValue(avgHistoric)}
         </td>
@@ -336,7 +339,7 @@ function generateEmailHTML(
 
       <div style="background:#4f46e5; padding:26px 32px; color:#ffffff;">
         <h2 style="margin:0; font-size:24px; font-weight:600;">
-          ⚠️ Insight alert for ${event.brand}
+          ⚠️ Insight alert for ${brandName}
         </h2>
         <p style="margin:6px 0 0; font-size:14px; opacity:0.9;">
           One of your key activity signals moved more than usual.
@@ -524,7 +527,7 @@ async function triggerAlert(
         ? Math.max(0, alertHour)
         : 0;
 
-    const formattedSubject = `${subjectMetricName} Alert | ${dropVal}% Drop | ${event.brand} | 0 - ${endHour} Hours`;
+    const formattedSubject = `${subjectMetricName} Alert | ${dropVal}% Drop | ${event.brand.toUpperCase()} | 0 - ${endHour} Hours`;
     // -----------------------------------
 
     console.log(`📧 Sending email to: ${cfg.to.join(", ")}`);
