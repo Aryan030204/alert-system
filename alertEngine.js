@@ -371,7 +371,7 @@ function generateEmailHTML(
             <strong>Severity:</strong> ${rule.severity.toUpperCase()}
             ${
               typeof alertHour === "number"
-                ? `<br>            <strong>Hour:</strong> ${alertHour} (data up to hour ${Math.max(
+                ? `<br><strong>Hour:</strong> ${alertHour} (data up to hour ${Math.max(
                     0,
                     alertHour
                   )}h)`
@@ -380,12 +380,16 @@ function generateEmailHTML(
           </p>
         </div>
 
-        <p style="font-size:15px; color:#4b5563;">
-          This may be temporary, but it’s worth a quick look to ensure everything is running smoothly.
-        </p>
+        <!-- ⭐ ADDED THIS BLOCK -->
+        <p style="font-size:15px; color:#4b5563; margin-top:20px;">
+  Take a look at the latest activity on your dashboard for possible causes: 
+  <a href="https://datum.trytechit.co/" style="color:#4f46e5; text-decoration:underline;">
+    https://datum.trytechit.co/
+  </a>
+</p>
       </div>
 
-      <div style="background:#f3f4f6; padding:14px; text-align:center%;">
+      <div style="background:#f3f4f6; padding:14px; text-align:center;">
         <span style="font-size:12px; color:#6b7280;">
           © ${new Date().getFullYear()} Datum Inc.
         </span>
