@@ -249,7 +249,19 @@ async function checkCooldown(alertId, cooldownMinutes) {
 
   if (!rows.length) return false;
 
-  const minutes = (Date.now() - new Date(rows[0].triggered_at)) / 60000;
+  // --- Convert triggered_at (UTC from DB) → IST ---
+  const triggeredUTC = new Date(rows[0].triggered_at);
+  const triggeredIST = new Date(
+    triggeredUTC.toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
+  );
+
+  // --- Convert NOW → IST ---
+  const nowIST = new Date(
+    new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
+  );
+
+  const minutes = (nowIST - triggeredIST) / 60000;
+
   return minutes < cooldownMinutes;
 }
 
