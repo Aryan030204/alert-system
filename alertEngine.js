@@ -353,13 +353,13 @@ function generateEmailHTML(
           </p>
         </div>
 
-        <!-- ⭐ ADDED THIS BLOCK -->
+        <!-- ⭐ Dashboard link -->
         <p style="font-size:15px; color:#4b5563; margin-top:20px;">
-  Take a look at the latest activity on your dashboard for possible causes: 
-  <a href="https://datum.trytechit.co/" style="color:#4f46e5; text-decoration:underline;">
-    https://datum.trytechit.co/
-  </a>
-</p>
+          Take a look at the latest activity on your dashboard for possible causes: 
+          <a href="https://datum.trytechit.co/" style="color:#4f46e5; text-decoration:underline;">
+            https://datum.trytechit.co/
+          </a>
+        </p>
       </div>
 
       <div style="background:#f3f4f6; padding:14px; text-align:center;">
@@ -459,6 +459,9 @@ async function triggerAlert(
   );
 }
 
+/* -------------------------------------------------------
+   Normal Threshold Evaluation
+--------------------------------------------------------*/
 async function evaluateThreshold(rule, metricValue, avgHistoric, dropPercent) {
   const threshold = Number(rule.threshold_value);
   if (rule.threshold_type === "percentage_drop") {
@@ -495,7 +498,7 @@ async function processIncomingEvent(event) {
 
   const rules = await loadRulesForBrand(event.brand_id);
 
-  // ⭐ GET CURRENT IST HOUR — REQUIRED FOR QUIET HOURS CHECK
+  // current IST hour
   const currentISTHour = Number(
     new Intl.DateTimeFormat("en-US", {
       timeZone: "Asia/Kolkata",
@@ -506,7 +509,7 @@ async function processIncomingEvent(event) {
 
   console.log("Current IST Hour:", currentISTHour);
 
-  // Determine hourCutoff (existing logic, untouched)
+  // Determine hourCutoff (existing logic)
   const istHour = currentISTHour;
   const hourCutoff =
     typeof event.hour === "number" && event.hour >= 0 && event.hour <= 23
@@ -523,30 +526,6 @@ async function processIncomingEvent(event) {
   ];
 
   for (const rule of rules) {
-    /* ----------------------------
-       QUIET HOURS CHECK (NEW)
-    -----------------------------*/
-    if (
-      typeof rule.quiet_hours_start === "number" &&
-      typeof rule.quiet_hours_end === "number"
-    ) {
-      const qs = rule.quiet_hours_start;
-      const qe = rule.quiet_hours_end;
-
-      const inQuiet =
-        qs < qe
-          ? currentISTHour >= qs && currentISTHour < qe
-          : currentISTHour >= qs || currentISTHour < qe;
-
-      if (inQuiet) {
-        console.log(
-          `⏳ Quiet hours active for rule ${rule.id}: Skipped. (${qs}:00 → ${qe}:00 IST)`
-        );
-        continue;
-      }
-    }
-    /* ----------------------------*/
-
     const metricValue = await computeMetric(rule, event);
     if (metricValue == null) continue;
 
@@ -572,16 +551,70 @@ async function processIncomingEvent(event) {
       }
     }
 
-    const shouldTrigger = await evaluateThreshold(
+    // 1️⃣ Normal threshold check (must pass first)
+    const shouldTriggerNormal = await evaluateThreshold(
       rule,
       metricValue,
       avgHistoric,
       dropPercent
     );
 
-    console.log("shouldTrigger:", shouldTrigger);
-    if (!shouldTrigger) continue;
+    console.log(
+      `Rule ${rule.id} normal threshold result:`,
+      shouldTriggerNormal
+    );
 
+    if (!shouldTriggerNormal) {
+      // If it doesn't pass normal threshold, we don't even consider quiet/critical.
+      continue;
+    }
+
+    // 2️⃣ Quiet hours + critical override
+    let inQuiet = false;
+
+    if (
+      typeof rule.quiet_hours_start === "number" &&
+      typeof rule.quiet_hours_end === "number"
+    ) {
+      const qs = rule.quiet_hours_start;
+      const qe = rule.quiet_hours_end;
+
+      inQuiet =
+        qs < qe
+          ? currentISTHour >= qs && currentISTHour < qe
+          : currentISTHour >= qs || currentISTHour < qe;
+
+      if (inQuiet) {
+        const crit = Number(rule.critical_threshold);
+        const hasCrit =
+          !Number.isNaN(crit) &&
+          crit > 0 &&
+          rule.threshold_type === "percentage_drop";
+        const hasDrop =
+          typeof dropPercent === "number" && !Number.isNaN(dropPercent);
+
+        if (hasCrit && hasDrop && dropPercent >= crit) {
+          console.log(
+            `⚠️ Critical override for rule ${
+              rule.id
+            }: drop=${dropPercent.toFixed(
+              2
+            )}% >= critical=${crit}% — alert will fire even in quiet hours.`
+          );
+          // allow to proceed
+        } else {
+          console.log(
+            `⏳ Quiet hours active for rule ${rule.id}: Skipped. (${qs}:00 → ${qe}:00 IST) ` +
+              `drop=${hasDrop ? dropPercent.toFixed(2) : "N/A"}%, critical=${
+                hasCrit ? crit : "N/A"
+              }`
+          );
+          continue;
+        }
+      }
+    }
+
+    // 3️⃣ Cooldown check (unchanged)
     const cooldown = await checkCooldown(rule.id, rule.cooldown_minutes);
     if (cooldown) {
       console.log(
@@ -590,6 +623,7 @@ async function processIncomingEvent(event) {
       continue;
     }
 
+    // 4️⃣ Finally fire the alert
     await triggerAlert(
       rule,
       event,
