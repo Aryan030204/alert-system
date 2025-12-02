@@ -210,10 +210,9 @@ async function checkCooldown(alertId, minutesCfg) {
 
   if (!rows.length) return false;
 
-<<<<<<< HEAD
   const mins = (Date.now() - new Date(rows[0].triggered_at)) / 60000;
   return mins < minutesCfg;
-=======
+
   // --- Convert triggered_at (UTC from DB) → IST ---
   const triggeredUTC = new Date(rows[0].triggered_at);
   const triggeredIST = new Date(
@@ -228,7 +227,6 @@ async function checkCooldown(alertId, minutesCfg) {
   const minutes = (nowIST - triggeredIST) / 60000;
 
   return minutes < cooldownMinutes;
->>>>>>> f3144bc99d5e00f312b28073c00cdb8556eca18e
 }
 
 /* -------------------------------------------------------
