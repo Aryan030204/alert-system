@@ -560,6 +560,14 @@ async function processIncomingEvent(event) {
     console.log("shouldTrigger:", shouldTrigger);
     if (!shouldTrigger) continue;
 
+    const cooldown = await checkCooldown(rule.id, rule.cooldown_minutes);
+    if (cooldown) {
+      console.log(
+        `Skipped trigger for rule ${rule.id} (${rule.name}) due to cooldown: ${rule.cooldown_minutes} minutes configured.`
+      );
+      continue;
+    }
+
     await triggerAlert(
       rule,
       event,
