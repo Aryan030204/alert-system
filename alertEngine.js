@@ -366,14 +366,24 @@ function generateEmailHTML(
 --------------------------------------------------------*/
 async function sendEmail(cfg, subject, html) {
   try {
+    if (!cfg || !cfg.to || !Array.isArray(cfg.to) || cfg.to.length === 0) {
+      console.error("❌ Invalid email configuration: missing 'to' array", cfg);
+      return;
+    }
+
     const transporter = nodemailer.createTransport({
       service: "gmail",
-      auth: { user: "aroraaryan997@gmail.com", pass: "jzop sqtb xmhx iwka" },
+      auth: {
+        user: process.env.ALERT_EMAIL_USER,
+        pass: process.env.ALERT_EMAIL_PASS,
+      },
     });
 
     await transporter.sendMail({
-      from: `"Alerting System" <${cfg.smtp_user || "aroraaryan997@gmail.com"}>`,
-      to: "aroraaryan997@gmail.com",
+      from: `"Alerting System" <${
+        cfg.smtp_user || process.env.ALERT_EMAIL_USER
+      }>`,
+      to: cfg.to.join(","),
       subject,
       html,
     });
