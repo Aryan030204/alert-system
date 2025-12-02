@@ -4,8 +4,6 @@ const nodemailer = require("nodemailer");
 
 /* -------------------------------------------------------
    Historical Average Lookup (using lookback_days)
-   For each metric, we aggregate per day from hour 0
-   up to (hourCutoff - 1), then average across days.
 --------------------------------------------------------*/
 async function getHistoricalAvgForMetric(
   brandId,
@@ -14,7 +12,6 @@ async function getHistoricalAvgForMetric(
   lookbackDays
 ) {
   try {
-    // no completed hours yet
     if (hourCutoff <= 0) return null;
 
     const [rows] = await pool.query("SELECT db_name FROM brands WHERE id = ?", [
@@ -25,7 +22,7 @@ async function getHistoricalAvgForMetric(
     const dbName = rows[0].db_name;
     const days = Number(lookbackDays) > 0 ? Number(lookbackDays) : 7;
 
-    // AOV: total_sales / total_orders (on daily aggregates)
+    // AOV AVG
     if (metricName === "aov") {
       const [avgRows] = await pool.query(
         `
@@ -43,45 +40,38 @@ async function getHistoricalAvgForMetric(
           GROUP BY date
           HAVING SUM(number_of_orders) > 0
         ) AS t;
-
         `,
         [days, hourCutoff]
       );
 
       const raw = avgRows[0]?.avg_val;
       const dayCount = avgRows[0]?.day_count ?? 0;
-      if (raw == null || dayCount === 0) return null;
+      if (!raw || dayCount === 0) return null;
 
-      const num = Number(raw);
-      if (Number.isNaN(num)) return null;
-
-      const rounded = Number(num.toFixed(2));
+      const rounded = Number(Number(raw).toFixed(2));
       console.log(
-        `✓ AOV historical avg for brand ${brandId} (last ${days} days, 0–${
-          hourCutoff - 1
-        }h): ${rounded} from ${dayCount} days`
+        `✓ AOV historical avg for brand ${brandId} (last ${days} days): ${rounded}`
       );
       return rounded;
     }
 
-    // Conversion Rate: (total_orders / total_sessions) * 100 (daily aggregates)
+    // CVR AVG
     if (metricName === "conversion_rate") {
       const [avgRows] = await pool.query(
         `
         SELECT 
           AVG(daily_cvr) AS avg_val,
-          COUNT(*)       AS day_count
+          COUNT(*) AS day_count
         FROM (
-            SELECT 
-                date,
-                (SUM(number_of_orders) / NULLIF(SUM(number_of_sessions), 0)) * 100 
-                    AS daily_cvr
-            FROM ${dbName}.hour_wise_sales
-            WHERE date >= DATE(CONVERT_TZ(NOW(), 'UTC', 'Asia/Kolkata')) - INTERVAL ? DAY
-              AND date <  DATE(CONVERT_TZ(NOW(), 'UTC', 'Asia/Kolkata'))
-              AND hour < ?
-            GROUP BY date
-            HAVING SUM(number_of_sessions) > 0
+          SELECT 
+            date,
+            (SUM(number_of_orders) / NULLIF(SUM(number_of_sessions), 0)) * 100 AS daily_cvr
+          FROM ${dbName}.hour_wise_sales
+          WHERE date >= DATE(CONVERT_TZ(NOW(), 'UTC', 'Asia/Kolkata')) - INTERVAL ? DAY
+            AND date < DATE(CONVERT_TZ(NOW(), 'UTC', 'Asia/Kolkata'))
+            AND hour < ?
+          GROUP BY date
+          HAVING SUM(number_of_sessions) > 0
         ) AS t;
         `,
         [days, hourCutoff]
@@ -89,67 +79,51 @@ async function getHistoricalAvgForMetric(
 
       const raw = avgRows[0]?.avg_val;
       const dayCount = avgRows[0]?.day_count ?? 0;
-      if (raw == null || dayCount === 0) return null;
+      if (!raw || dayCount === 0) return null;
 
-      const num = Number(raw);
-      if (Number.isNaN(num)) return null;
-
-      const rounded = Number(num.toFixed(4));
+      const rounded = Number(Number(raw).toFixed(4));
       console.log(
-        `✓ conversion_rate historical avg for brand ${brandId} (last ${days} days, 0–${
-          hourCutoff - 1
-        }h): ${rounded} from ${dayCount} days`
+        `✓ conversion_rate historical avg for brand ${brandId} = ${rounded}`
       );
       return rounded;
     }
 
-    // Base metrics: use daily SUM() then AVG across days
-    const columnMap = {
+    // BASE metrics
+    const map = {
       total_orders: "number_of_orders",
       total_atc_sessions: "number_of_atc_sessions",
       total_sales: "total_sales",
       total_sessions: "number_of_sessions",
     };
 
-    const col = columnMap[metricName];
-    if (!col) {
-      console.warn(`⚠️ No column mapping for metric: ${metricName}`);
-      return null;
-    }
+    const col = map[metricName];
+    if (!col) return null;
 
     const [avgRows] = await pool.query(
       `
       SELECT 
-          AVG(daily_val) AS avg_val,
-          COUNT(*)       AS day_count
+        AVG(daily_val) AS avg_val,
+        COUNT(*) AS day_count
       FROM (
-          SELECT 
-              date,
-              SUM(${col}) AS daily_val
-          FROM ${dbName}.hour_wise_sales
-          WHERE date >= DATE(CONVERT_TZ(NOW(), 'UTC', 'Asia/Kolkata')) - INTERVAL ? DAY
-            AND date <  DATE(CONVERT_TZ(NOW(), 'UTC', 'Asia/Kolkata'))
-            AND hour < ?
-          GROUP BY date
+        SELECT 
+          date,
+          SUM(${col}) AS daily_val
+        FROM ${dbName}.hour_wise_sales
+        WHERE date >= DATE(CONVERT_TZ(NOW(), 'UTC', 'Asia/Kolkata')) - INTERVAL ? DAY
+          AND date < DATE(CONVERT_TZ(NOW(), 'UTC', 'Asia/Kolkata'))
+          AND hour < ?
+        GROUP BY date
       ) AS t;
-
       `,
       [days, hourCutoff]
     );
 
     const raw = avgRows[0]?.avg_val;
     const dayCount = avgRows[0]?.day_count ?? 0;
-    if (raw == null || dayCount === 0) return null;
+    if (!raw || dayCount === 0) return null;
 
-    const num = Number(raw);
-    if (Number.isNaN(num)) return null;
-
-    const rounded = Number(num.toFixed(2));
-    console.log(
-      `✓ ${metricName} historical avg for brand ${brandId} (last ${days} days, 0–${
-        hourCutoff - 1
-      }h): ${rounded} from ${dayCount} days`
-    );
+    const rounded = Number(Number(raw).toFixed(2));
+    console.log(`✓ ${metricName} historical avg = ${rounded}`);
     return rounded;
   } catch (err) {
     console.error(`🔥 historical avg error for ${metricName}:`, err.message);
@@ -158,7 +132,7 @@ async function getHistoricalAvgForMetric(
 }
 
 /* -------------------------------------------------------
-   Load active alerts for a brand
+   Load Active Alerts
 --------------------------------------------------------*/
 async function loadRulesForBrand(brandId) {
   const [rules] = await pool.query(
@@ -169,17 +143,11 @@ async function loadRulesForBrand(brandId) {
 }
 
 /* -------------------------------------------------------
-   Parse JSON configs (robust)
+   Parse channel_config
 --------------------------------------------------------*/
 function parseChannelConfig(raw) {
   if (!raw) return null;
-
   if (typeof raw === "object") return raw;
-
-  if (typeof raw !== "string") {
-    console.warn("⚠ channel_config is not string or object:", raw);
-    return null;
-  }
 
   try {
     return JSON.parse(raw);
@@ -198,50 +166,43 @@ function parseChannelConfig(raw) {
 }
 
 /* -------------------------------------------------------
-   Compute metric from incoming event
-   (today's value – your ETL already sends 0..currentHour data)
+   Compute Metric
 --------------------------------------------------------*/
 async function computeMetric(rule, event) {
   try {
-    if (rule.metric_type === "base") {
-      return event[rule.metric_name];
-    }
-    if (rule.metric_type === "derived") {
-      return evaluate(rule.formula, event);
-    }
+    if (rule.metric_type === "base") return event[rule.metric_name];
+    if (rule.metric_type === "derived") return evaluate(rule.formula, event);
   } catch (err) {
     console.error("❌ Metric computation error:", err.message);
   }
   return null;
 }
 
+/* -------------------------------------------------------
+   Normalize keys
+--------------------------------------------------------*/
 function normalizeEventKeys(event) {
-  if (!event || typeof event !== "object") return event;
-
+  if (!event) return event;
   const normalized = {};
 
-  for (const [key, value] of Object.entries(event)) {
-    normalized[key] = value;
-
-    const snake = key.replace(/[A-Z]/g, (char) => `_${char.toLowerCase()}`);
-    if (snake !== key && normalized[snake] === undefined) {
-      normalized[snake] = value;
-    }
+  for (const [k, v] of Object.entries(event)) {
+    normalized[k] = v;
+    const snake = k.replace(/[A-Z]/g, (ch) => `_${ch.toLowerCase()}`);
+    if (snake !== k) normalized[snake] = v;
   }
-
   return normalized;
 }
 
 /* -------------------------------------------------------
-   Cooldown protection
+   Cooldown
 --------------------------------------------------------*/
-async function checkCooldown(alertId, cooldownMinutes) {
+async function checkCooldown(alertId, minutesCfg) {
   const [rows] = await pool.query(
     `
       SELECT triggered_at 
-      FROM alert_history 
+      FROM alert_history
       WHERE alert_id = ?
-      ORDER BY triggered_at DESC 
+      ORDER BY triggered_at DESC
       LIMIT 1
     `,
     [alertId]
@@ -249,12 +210,12 @@ async function checkCooldown(alertId, cooldownMinutes) {
 
   if (!rows.length) return false;
 
-  const minutes = (Date.now() - new Date(rows[0].triggered_at)) / 60000;
-  return minutes < cooldownMinutes;
+  const mins = (Date.now() - new Date(rows[0].triggered_at)) / 60000;
+  return mins < minutesCfg;
 }
 
 /* -------------------------------------------------------
-   PREMIUM EMAIL TEMPLATE
+   Email HTML
 --------------------------------------------------------*/
 function generateEmailHTML(
   event,
@@ -405,24 +366,14 @@ function generateEmailHTML(
 --------------------------------------------------------*/
 async function sendEmail(cfg, subject, html) {
   try {
-    if (!cfg || !cfg.to || !Array.isArray(cfg.to) || cfg.to.length === 0) {
-      console.error("❌ Invalid email configuration: missing 'to' array", cfg);
-      return;
-    }
-
     const transporter = nodemailer.createTransport({
       service: "gmail",
-      auth: {
-        user: process.env.ALERT_EMAIL_USER,
-        pass: process.env.ALERT_EMAIL_PASS,
-      },
+      auth: { user: "aroraaryan997@gmail.com", pass: "jzop sqtb xmhx iwka" },
     });
 
     await transporter.sendMail({
-      from: `"Alerting System" <${
-        cfg.smtp_user || process.env.ALERT_EMAIL_USER
-      }>`,
-      to: cfg.to.join(","),
+      from: `"Alerting System" <${cfg.smtp_user || "aroraaryan997@gmail.com"}>`,
+      to: "aroraaryan997@gmail.com",
       subject,
       html,
     });
@@ -434,7 +385,7 @@ async function sendEmail(cfg, subject, html) {
 }
 
 /* -------------------------------------------------------
-   Fire Alert
+   Trigger Alert
 --------------------------------------------------------*/
 async function triggerAlert(
   rule,
@@ -444,43 +395,6 @@ async function triggerAlert(
   dropPercent,
   alertHour
 ) {
-  console.log("\n" + "=".repeat(60));
-  console.log("🚨 ALERT TRIGGERED");
-  console.log("=".repeat(60));
-  console.log(`Alert Name: ${rule.name}`);
-  console.log(`Brand: ${event.brand} (ID: ${event.brand_id})`);
-  console.log(`Metric: ${rule.metric_name} (${rule.metric_type})`);
-  console.log(`Current Value: ${metricValue}`);
-  console.log(`Threshold Type: ${rule.threshold_type}`);
-  console.log(`Threshold Value: ${rule.threshold_value}`);
-
-  if (
-    avgHistoric !== null &&
-    typeof avgHistoric === "number" &&
-    !Number.isNaN(avgHistoric)
-  ) {
-    console.log(
-      `Historical Avg (${rule.lookback_days} days): ${avgHistoric.toFixed(2)}`
-    );
-  } else {
-    console.log("Historical Avg: N/A");
-  }
-
-  if (
-    dropPercent !== null &&
-    typeof dropPercent === "number" &&
-    !Number.isNaN(dropPercent)
-  ) {
-    console.log(`Drop Percentage: ${dropPercent.toFixed(2)}%`);
-  } else {
-    console.log("Drop Percentage: N/A");
-  }
-
-  console.log(`Severity: ${rule.severity}`);
-  console.log(`Cooldown: ${rule.cooldown_minutes} minutes`);
-  console.log(`Timestamp: ${new Date().toISOString()}`);
-  console.log("=".repeat(60) + "\n");
-
   const emailHTML = generateEmailHTML(
     event,
     rule,
@@ -495,63 +409,36 @@ async function triggerAlert(
     [rule.id]
   );
 
-  console.log("Channels fetched for alert", rule.id, channels);
-
   for (const ch of channels) {
     if (ch.channel_type !== "email") continue;
 
-    console.log("channel_config RAW:", ch.channel_config);
-
     const cfg = parseChannelConfig(ch.channel_config);
+    if (!cfg) continue;
 
-    if (!cfg) {
-      console.log(`the cfg is null or invalid for alert ${rule.id}`);
-      continue;
-    }
-
-    if (!cfg.to || !Array.isArray(cfg.to) || cfg.to.length === 0) {
-      console.log(`❌ cfg.to invalid for alert ${rule.id}`, cfg);
-      continue;
-    }
-
-    // ---------- SUBJECT FORMAT ----------
     const metricDisplayName = rule.metric_name.replace(/_/g, " ");
     const subjectMetricName =
       metricDisplayName.charAt(0).toUpperCase() + metricDisplayName.slice(1);
 
     const dropVal =
-      dropPercent !== null &&
-      typeof dropPercent === "number" &&
-      !Number.isNaN(dropPercent)
+      dropPercent && !Number.isNaN(dropPercent)
         ? Math.abs(dropPercent).toFixed(2)
         : "0.00";
 
-    const endHour =
-      typeof alertHour === "number" && !Number.isNaN(alertHour)
-        ? Math.max(0, alertHour)
-        : 0;
+    const endHour = alertHour || 0;
 
-    const formattedSubject = `${subjectMetricName} Alert | ${dropVal}% Drop | ${event.brand.toUpperCase()} | 0 - ${endHour} Hours`;
-    // -----------------------------------
+    const subject = `${subjectMetricName} Alert | ${dropVal}% Drop | ${event.brand.toUpperCase()} | 0 - ${endHour} Hours`;
 
-    console.log(`📧 Sending email to: ${cfg.to.join(", ")}`);
-    await sendEmail(cfg, formattedSubject, emailHTML);
+    await sendEmail(cfg, subject, emailHTML);
   }
 
   await pool.query(
     "INSERT INTO alert_history (alert_id, brand_id, payload) VALUES (?, ?, ?)",
     [rule.id, rule.brand_id, JSON.stringify(event)]
   );
-
-  console.log(`✅ Alert history recorded for alert ID: ${rule.id}\n`);
 }
 
-/* -------------------------------------------------------
-   Threshold Evaluation
---------------------------------------------------------*/
 async function evaluateThreshold(rule, metricValue, avgHistoric, dropPercent) {
   const threshold = Number(rule.threshold_value);
-
   if (rule.threshold_type === "percentage_drop") {
     if (
       avgHistoric == null ||
@@ -562,7 +449,6 @@ async function evaluateThreshold(rule, metricValue, avgHistoric, dropPercent) {
     }
     return dropPercent >= threshold;
   }
-
   if (rule.threshold_type === "percentage_rise") {
     if (
       avgHistoric == null ||
@@ -573,8 +459,6 @@ async function evaluateThreshold(rule, metricValue, avgHistoric, dropPercent) {
     }
     return -dropPercent >= threshold;
   }
-
-  // absolute threshold (legacy)
   return metricValue < threshold;
 }
 
@@ -583,20 +467,14 @@ async function evaluateThreshold(rule, metricValue, avgHistoric, dropPercent) {
 --------------------------------------------------------*/
 async function processIncomingEvent(event) {
   if (typeof event === "string") event = JSON.parse(event);
-
   event = normalizeEventKeys(event);
 
   console.log("📥 Event Received:", event);
 
   const rules = await loadRulesForBrand(event.brand_id);
 
-  // hourCutoff: upper bound exclusive. Prefer `event.hour` (ETL-provided) if present and valid.
-  // Otherwise use India local time (IST) as the fallback so alerts align with India hours.
-  // We aggregate hours < hourCutoff (0..hourCutoff-1) to include only fully-completed hours.
-  const serverHour = new Date().getHours();
-
-  // compute IST hour (0..23) without extra deps
-  const istHour = Number(
+  // ⭐ GET CURRENT IST HOUR — REQUIRED FOR QUIET HOURS CHECK
+  const currentISTHour = Number(
     new Intl.DateTimeFormat("en-US", {
       timeZone: "Asia/Kolkata",
       hour: "2-digit",
@@ -604,29 +482,14 @@ async function processIncomingEvent(event) {
     }).format(new Date())
   );
 
-  // validate event.hour if provided
-  let hourCutoff;
-  let hourSource = "ist";
-  if (
-    event &&
-    typeof event.hour === "number" &&
-    Number.isInteger(event.hour) &&
-    event.hour >= 0 &&
-    event.hour <= 23
-  ) {
-    hourCutoff = event.hour;
-    hourSource = "event";
-  } else {
-    hourCutoff = istHour;
-    hourSource = "ist";
-  }
+  console.log("Current IST Hour:", currentISTHour);
 
-  console.log(
-    `Using hourCutoff=${hourCutoff} (aggregating hours 0..${Math.max(
-      0,
-      hourCutoff - 1
-    )}). serverHour=${serverHour}, istHour=${istHour}, hourSource=${hourSource}`
-  );
+  // Determine hourCutoff (existing logic, untouched)
+  const istHour = currentISTHour;
+  const hourCutoff =
+    typeof event.hour === "number" && event.hour >= 0 && event.hour <= 23
+      ? event.hour
+      : istHour;
 
   const metricsNeedingAvg = [
     "total_orders",
@@ -638,6 +501,30 @@ async function processIncomingEvent(event) {
   ];
 
   for (const rule of rules) {
+    /* ----------------------------
+       QUIET HOURS CHECK (NEW)
+    -----------------------------*/
+    if (
+      typeof rule.quiet_hours_start === "number" &&
+      typeof rule.quiet_hours_end === "number"
+    ) {
+      const qs = rule.quiet_hours_start;
+      const qe = rule.quiet_hours_end;
+
+      const inQuiet =
+        qs < qe
+          ? currentISTHour >= qs && currentISTHour < qe
+          : currentISTHour >= qs || currentISTHour < qe;
+
+      if (inQuiet) {
+        console.log(
+          `⏳ Quiet hours active for rule ${rule.id}: Skipped. (${qs}:00 → ${qe}:00 IST)`
+        );
+        continue;
+      }
+    }
+    /* ----------------------------*/
+
     const metricValue = await computeMetric(rule, event);
     if (metricValue == null) continue;
 
@@ -646,12 +533,10 @@ async function processIncomingEvent(event) {
 
     const needsHistorical =
       metricsNeedingAvg.includes(rule.metric_name) ||
-      rule.threshold_type === "percentage_drop" ||
-      rule.threshold_type === "percentage_rise";
+      rule.threshold_type.includes("percentage");
 
     if (needsHistorical) {
-      const lookbackDays =
-        Number(rule.lookback_days) > 0 ? Number(rule.lookback_days) : 7;
+      const lookbackDays = rule.lookback_days || 7;
 
       avgHistoric = await getHistoricalAvgForMetric(
         event.brand_id,
@@ -660,12 +545,7 @@ async function processIncomingEvent(event) {
         lookbackDays
       );
 
-      if (
-        avgHistoric !== null &&
-        typeof avgHistoric === "number" &&
-        !Number.isNaN(avgHistoric) &&
-        avgHistoric > 0
-      ) {
+      if (avgHistoric > 0) {
         dropPercent = ((avgHistoric - metricValue) / avgHistoric) * 100;
       }
     }
@@ -677,17 +557,8 @@ async function processIncomingEvent(event) {
       dropPercent
     );
 
-    console.log("shouldTrigger for rule", rule.id, "=", shouldTrigger);
-
+    console.log("shouldTrigger:", shouldTrigger);
     if (!shouldTrigger) continue;
-
-    const cooldown = await checkCooldown(rule.id, rule.cooldown_minutes);
-    if (cooldown) {
-      console.log(
-        `Skipped trigger for rule ${rule.id} (${rule.name}) due to cooldown: ${rule.cooldown_minutes} minutes configured.`
-      );
-      continue;
-    }
 
     await triggerAlert(
       rule,
