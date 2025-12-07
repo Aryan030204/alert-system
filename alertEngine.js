@@ -526,6 +526,10 @@ async function processIncomingEvent(event) {
   ];
 
   for (const rule of rules) {
+    rule.quiet_hours_start = Number(rule.quiet_hours_start);
+    rule.quiet_hours_end = Number(rule.quiet_hours_end);
+    rule.critical_threshold = Number(rule.critical_threshold);
+
     const metricValue = await computeMetric(rule, event);
     if (metricValue == null) continue;
 
