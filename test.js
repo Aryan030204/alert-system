@@ -7,7 +7,7 @@
 require("dotenv").config();
 const crypto = require("crypto");
 
-const DEFAULT_URL = "http://localhost:3000/qstash/events";
+const DEFAULT_URL = "http://localhost:5000/qstash/events";
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -39,8 +39,38 @@ async function main() {
   const { url, json } = parseArgs();
 
   const sampleEvent = {
+    brand_id: 1,
+    brand: "PTS",
+    total_sales: 1283735,
+    total_orders: 2245,
+    aov: 605.8334828021219,
+    total_sessions: 9000000, // inflate sessions so total_sales / total_sessions * 100 drops CVR
+    total_atc_sessions: 13837,
+    gross_sales: 173874.20956420898,
+  };
+  const sampleEvent2 = {
+    brand_id: 2,
+    brand: "BBB",
+    total_sales: 1283735,
+    total_orders: 2245,
+    aov: 605.8334828021219,
+    total_sessions: 9000000, // inflate sessions so total_sales / total_sessions * 100 drops CVR
+    total_atc_sessions: 13837,
+    gross_sales: 173874.20956420898,
+  };
+  const sampleEvent3 = {
     brand_id: 3,
-    brand: "tmc",
+    brand: "TMC",
+    total_sales: 0,
+    total_orders: 2245,
+    aov: 605.8334828021219,
+    total_sessions: 9000000, // inflate sessions so total_sales / total_sessions * 100 drops CVR
+    total_atc_sessions: 13837,
+    gross_sales: 173874.20956420898,
+  };
+  const sampleEvent4 = {
+    brand_id: 4,
+    brand: "MILA",
     total_sales: 1283735,
     total_orders: 2245,
     aov: 605.8334828021219,
@@ -49,7 +79,7 @@ async function main() {
     gross_sales: 173874.20956420898,
   };
 
-  const eventObj = json ? JSON.parse(json) : sampleEvent;
+  const eventObj = json ? JSON.parse(json) : sampleEvent3;
   const bodyString = JSON.stringify(eventObj);
 
   const signingKey = process.env.QSTASH_CURRENT_SIGNING_KEY;
