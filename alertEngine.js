@@ -279,11 +279,13 @@ function generateEmailHTML(
   `;
 
   if (hasAvg) {
+    const historicalLabel =
+      rule.metric_name === "performance"
+        ? "Prior Value"
+        : `Historical Avg (${rule.lookback_days} days)`;
     metricRows += `
       <tr>
-        <td style="padding:10px 0; color:#6b7280; font-size:15px;">Historical Avg (${
-          rule.lookback_days
-        } days)</td>
+        <td style="padding:10px 0; color:#6b7280; font-size:15px;">${historicalLabel}</td>
         <td style="padding:10px 0; text-align:right; font-weight:bold; font-size:15px;">
           ${formatValue(avgHistoric)}
         </td>
@@ -496,7 +498,30 @@ async function processIncomingEvent(event) {
 
   console.log("📥 Event Received:", event);
 
-  const rules = await loadRulesForBrand(event.brand_id);
+  let brandId = event.brand_id;
+
+  // Resolve brand_id from brand_key if missing
+  if (!brandId && event.brand_key) {
+    const [brands] = await pool.query(
+      "SELECT id FROM brands WHERE name = ?",
+      [event.brand_key]
+    );
+    if (brands.length > 0) {
+      brandId = brands[0].id;
+      event.brand_id = brandId; 
+      if (!event.brand) event.brand = event.brand_key;
+    } else {
+      console.warn("⚠ brand_key not found:", event.brand_key);
+      return; 
+    }
+  }
+
+  if (!brandId) {
+    console.error("❌ missing brand_id and brand_key");
+    return;
+  }
+
+  const rules = await loadRulesForBrand(brandId);
 
   // current IST hour
   const currentISTHour = Number(
@@ -532,22 +557,40 @@ async function processIncomingEvent(event) {
     let avgHistoric = null;
     let dropPercent = null;
 
-    const needsHistorical =
-      metricsNeedingAvg.includes(rule.metric_name) ||
-      rule.threshold_type.includes("percentage");
+    if (rule.threshold_type.includes("percentage") || rule.metric_name === "performance") {
+      if (rule.metric_name === "performance") {
+        // Relative drop for performance
+        const [history] = await pool.query(
+          "SELECT payload FROM alert_history WHERE alert_id = ? ORDER BY triggered_at DESC LIMIT 1",
+          [rule.id]
+        );
 
-    if (needsHistorical) {
-      const lookbackDays = rule.lookback_days || 7;
+        if (history.length > 0) {
+          try {
+            const raw = history[0].payload;
+            const prevPayload = typeof raw === "string" ? JSON.parse(raw) : raw;
+            const prevValue = prevPayload.performance;
+            if (typeof prevValue === "number" && prevValue > 0) {
+              avgHistoric = prevValue;
+              dropPercent = ((prevValue - metricValue) / prevValue) * 100;
+            }
+          } catch (e) {
+            console.error("🔥 Performance history error:", e.message);
+          }
+        }
+      } else {
+        const lookbackDays = rule.lookback_days || 7;
 
-      avgHistoric = await getHistoricalAvgForMetric(
-        event.brand_id,
-        rule.metric_name,
-        hourCutoff,
-        lookbackDays
-      );
+        avgHistoric = await getHistoricalAvgForMetric(
+          brandId,
+          rule.metric_name,
+          hourCutoff,
+          lookbackDays
+        );
 
-      if (avgHistoric > 0) {
-        dropPercent = ((avgHistoric - metricValue) / avgHistoric) * 100;
+        if (avgHistoric > 0) {
+          dropPercent = ((avgHistoric - metricValue) / avgHistoric) * 100;
+        }
       }
     }
 
