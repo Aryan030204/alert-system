@@ -705,11 +705,13 @@ function generateEmailHTML(
   `;
 
   if (hasAvg) {
+    const historicalLabel =
+      rule.metric_name === "performance"
+        ? "Prior Value"
+        : `Historical Avg (${rule.lookback_days} days)`;
     metricRows += `
       <tr>
-        <td style="padding:10px 0; color:#6b7280; font-size:15px;">Historical Avg (${
-          rule.lookback_days
-        } days)</td>
+        <td style="padding:10px 0; color:#6b7280; font-size:15px;">${historicalLabel}</td>
         <td style="padding:10px 0; text-align:right; font-weight:bold; font-size:15px;">
           ${formatValue(avgHistoric)}
         </td>
@@ -1020,9 +1022,16 @@ async function sendEmail(cfg, subject, html) {
       },
     });
 
+    // await transporter.sendMail({
+    //   from: `"Alerting System" <${cfg.smtp_user || process.env.ALERT_EMAIL_USER}>`,
+    //   to: cfg.to.join(","),
+    //   subject,
+    //   html,
+    // });
+
     await transporter.sendMail({
       from: `"Alerting System" <${cfg.smtp_user || process.env.ALERT_EMAIL_USER}>`,
-      to: cfg.to.join(","),
+      to: "aryan.arora@trytechit.co",
       subject,
       html,
     });
@@ -1149,7 +1158,33 @@ async function processIncomingEvent(event) {
   log("event:received", event);
   event = normalizeEventKeys(event);
 
-  const rules = await loadRulesForBrand(event.brand_id);
+  let brandId = event.brand_id;
+
+  // Resolve brand_id from brand_key if missing
+  if (!brandId && event.brand_key) {
+    log("brand:lookup", { brand_key: event.brand_key });
+    const [brands] = await pool.query(
+      "SELECT id FROM brands WHERE name = ?",
+      [event.brand_key]
+    );
+    if (brands.length > 0) {
+      brandId = brands[0].id;
+      event.brand_id = brandId; // Add to event for later use
+      log("brand:resolved", { brand_key: event.brand_key, brandId });
+      // Ensure brand is present for alert subjects
+      if (!event.brand) event.brand = event.brand_key;
+    } else {
+      log("brand:error", { reason: "brand_key not found", brand_key: event.brand_key });
+      return; // Stop if brand unknown
+    }
+  }
+
+  if (!brandId) {
+    log("event:error", { reason: "missing brand_id and brand_key" });
+    return;
+  }
+
+  const rules = await loadRulesForBrand(brandId);
   log("rules:count", { count: rules.length });
 
   const currentISTHour = Number(
@@ -1175,16 +1210,43 @@ async function processIncomingEvent(event) {
     let avgHistoric = null;
     let dropPercent = null;
 
-    if (rule.threshold_type.includes("percentage")) {
-      avgHistoric = await getHistoricalAvgForMetric(
-        event.brand_id,
-        rule.metric_name,
-        hourCutoff,
-        rule.lookback_days || 7
-      );
-      if (avgHistoric > 0)
-        dropPercent = ((avgHistoric - metricValue) / avgHistoric) * 100;
-      log("rule:historical", { ruleId: rule.id, avgHistoric, dropPercent });
+    if (rule.threshold_type.includes("percentage") || rule.metric_name === "performance") {
+      // Calculate drop relative to previous alert for performance
+      if (rule.metric_name === "performance") {
+        log("rule:performance:lookup", { ruleId: rule.id });
+        const [history] = await pool.query(
+          "SELECT payload FROM alert_history WHERE alert_id = ? ORDER BY triggered_at DESC LIMIT 1",
+          [rule.id]
+        );
+        log("rule:performance:history", { count: history.length, ruleId: rule.id });
+
+        if (history.length > 0) {
+          try {
+            const raw = history[0].payload;
+            const prevPayload = typeof raw === "string" ? JSON.parse(raw) : raw;
+            const prevValue = prevPayload.performance;
+            if (typeof prevValue === "number" && prevValue > 0) {
+              avgHistoric = prevValue;
+              dropPercent = ((prevValue - metricValue) / prevValue) * 100;
+              log("rule:performance:drop", { ruleId: rule.id, prevValue, currentValue: metricValue, dropPercent });
+            }
+          } catch (e) {
+            log("rule:performance:error", { ruleId: rule.id, error: e.message });
+          }
+        } else {
+          log("rule:performance:first", { ruleId: rule.id, reason: "no history" });
+        }
+      } else {
+        avgHistoric = await getHistoricalAvgForMetric(
+          brandId,
+          rule.metric_name,
+          hourCutoff,
+          rule.lookback_days || 7
+        );
+        if (avgHistoric > 0)
+          dropPercent = ((avgHistoric - metricValue) / avgHistoric) * 100;
+        log("rule:historical", { ruleId: rule.id, avgHistoric, dropPercent });
+      }
     }
 
     if (

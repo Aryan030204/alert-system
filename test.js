@@ -18,6 +18,8 @@ function parseArgs() {
       out.url = args[++i];
     } else if (a === "--json" && args[i + 1]) {
       out.json = args[++i];
+    } else if (a === "--perf" && args[i + 1]) {
+      out.perf = Number(args[++i]);
     }
   }
   return out;
@@ -36,7 +38,7 @@ function buildSignature(bodyString, signingKey) {
 }
 
 async function main() {
-  const { url, json } = parseArgs();
+  const { url, json, perf } = parseArgs();
 
   const sampleEvent = {
     brand_id: 1,
@@ -79,7 +81,21 @@ async function main() {
     gross_sales: 173874.20956420898,
   };
 
-  const eventObj = json ? JSON.parse(json) : sampleEvent3;
+  const sampleEventPerformance = {
+    brand_key: "PTS",
+    brand_name: "SkincarePersonalTouch",
+    performance: 38,
+    cls: 0.021,
+    fcp: 10.69,
+    inp: 0,
+    lcp: 21.81,
+    ttfb: 0.03,
+    date: "2025-12-24",
+    time: "17:33:37",
+  };
+
+  const eventObj = json ? JSON.parse(json) : sampleEventPerformance;
+  if (perf && !json) eventObj.performance = perf;
   const bodyString = JSON.stringify(eventObj);
 
   const signingKey = process.env.QSTASH_CURRENT_SIGNING_KEY;
