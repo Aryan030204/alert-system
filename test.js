@@ -21,9 +21,9 @@ async function main() {
   const { url, json, perf } = parseArgs();
 
   const sampleEventPerformance = {
-    brand_key: "PTS",
-    brand_name: "SkincarePersonalTouch",
-    performance: 75,
+    brand_key: "TMC",
+    brand_name: "TMC",
+    performance: 9,
     cls: 0.021,
     fcp: 10.69,
     inp: 0,

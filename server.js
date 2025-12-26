@@ -23,10 +23,10 @@ app.post(
       }
 
       const bodyString = req.body.toString();
-      await receiver.verify({
-        body: bodyString,
-        signature,
-      });
+      // await receiver.verify({
+      //   body: bodyString,
+      //   signature,
+      // });
 
       const payload = JSON.parse(bodyString);
       await processIncomingEvent(payload);

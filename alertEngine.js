@@ -170,10 +170,24 @@ function parseChannelConfig(raw) {
 --------------------------------------------------------*/
 async function computeMetric(rule, event) {
   try {
-    if (rule.metric_type === "base") return event[rule.metric_name];
-    if (rule.metric_type === "derived") return evaluate(rule.formula, event);
+    if (rule.metric_type === "base") {
+      const val = event[rule.metric_name];
+      if (val === undefined) {
+        // Not a failure, just not in this specific event (e.g., perf event vs sales event)
+        return null;
+      }
+      return val;
+    }
+    if (rule.metric_type === "derived") {
+      return evaluate(rule.formula, event);
+    }
   } catch (err) {
-    console.error("❌ Metric computation error:", err.message);
+    if (err.message.includes("Undefined symbol")) {
+      const missing = err.message.split("symbol ")[1];
+      console.log(`ℹ Skipping rule ${rule.id}: metric '${missing}' not in event data`);
+    } else {
+      console.error("❌ Metric computation error:", err.message);
+    }
   }
   return null;
 }
@@ -265,6 +279,10 @@ function generateEmailHTML(
     thresholdDisplay = `${rule.threshold_value}% drop`;
   } else if (rule.threshold_type === "percentage_rise") {
     thresholdDisplay = `${rule.threshold_value}% rise`;
+  } else if (rule.threshold_type === "less_than") {
+    thresholdDisplay = `less than ${formatValue(rule.threshold_value)}`;
+  } else if (rule.threshold_type === "greater_than") {
+    thresholdDisplay = `greater than ${formatValue(rule.threshold_value)}`;
   } else {
     thresholdDisplay = formatValue(rule.threshold_value);
   }
@@ -429,8 +447,8 @@ async function triggerAlert(
   );
 
   const [channels] = await pool.query(
-    "SELECT * FROM alert_channels WHERE alert_id = ?",
-    [rule.id]
+    "SELECT * FROM brands_alert_channel WHERE brand_id = ? AND is_active = 1",
+    [rule.brand_id]
   );
 
   for (const ch of channels) {
@@ -486,6 +504,17 @@ async function evaluateThreshold(rule, metricValue, avgHistoric, dropPercent) {
     }
     return -dropPercent >= threshold;
   }
+  if (rule.threshold_type === "less_than") {
+    const isBelow = metricValue < threshold;
+    const isWorsening = avgHistoric == null || metricValue < avgHistoric;
+    return isBelow && isWorsening;
+  }
+  if (rule.threshold_type === "greater_than") {
+    const isAbove = metricValue > threshold;
+    const isWorsening = avgHistoric == null || metricValue > avgHistoric;
+    return isAbove && isWorsening;
+  }
+  // Fallback for legacy 'absolute' type
   return metricValue < threshold;
 }
 
@@ -557,25 +586,54 @@ async function processIncomingEvent(event) {
     let avgHistoric = null;
     let dropPercent = null;
 
-    if (rule.threshold_type.includes("percentage") || rule.metric_name === "performance") {
+    const isAbsoluteCondition = ["less_than", "greater_than", "absolute"].includes(rule.threshold_type);
+
+    if (rule.threshold_type.includes("percentage") || (rule.metric_name === "performance" && isAbsoluteCondition)) {
       if (rule.metric_name === "performance") {
-        // Relative drop for performance
+        // --- Daily Baseline Reset Logic ---
         const [history] = await pool.query(
-          "SELECT payload FROM alert_history WHERE alert_id = ? ORDER BY triggered_at DESC LIMIT 1",
+          "SELECT payload, triggered_at FROM alert_history WHERE alert_id = ? ORDER BY triggered_at DESC LIMIT 1",
           [rule.id]
         );
 
+        // Get Today in IST
+        const nowIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+        const todayStr = nowIST.toISOString().split("T")[0];
+
+        // Default to threshold value as the prior baseline
+        avgHistoric = Number(rule.threshold_value);
+
         if (history.length > 0) {
-          try {
-            const raw = history[0].payload;
-            const prevPayload = typeof raw === "string" ? JSON.parse(raw) : raw;
-            const prevValue = prevPayload.performance;
-            if (typeof prevValue === "number" && prevValue > 0) {
-              avgHistoric = prevValue;
-              dropPercent = ((prevValue - metricValue) / prevValue) * 100;
+          const lastIST = new Date(
+            new Date(history[0].triggered_at).toLocaleString("en-US", {
+              timeZone: "Asia/Kolkata",
+            })
+          );
+          const lastDateStr = lastIST.toISOString().split("T")[0];
+
+          // Only use history if it happened TODAY in IST
+          if (lastDateStr === todayStr) {
+            try {
+              const raw = history[0].payload;
+              const prevPayload = typeof raw === "string" ? JSON.parse(raw) : raw;
+              const prevValue = prevPayload.performance;
+              if (typeof prevValue === "number" && prevValue > 0) {
+                avgHistoric = prevValue;
+              }
+            } catch (e) {
+              console.error("🔥 Performance history error:", e.message);
             }
-          } catch (e) {
-            console.error("🔥 Performance history error:", e.message);
+          }
+        }
+
+        if (avgHistoric != null) {
+          dropPercent = ((avgHistoric - metricValue) / avgHistoric) * 100;
+          console.log(`✓ performance = ${metricValue}`);
+          console.log(`✓ performance prior value for rule ${rule.id} = ${avgHistoric}`);
+          if (dropPercent != null) {
+            console.log(
+              `✓ performance drop percent for rule ${rule.id} = ${dropPercent.toFixed(2)}%`
+            );
           }
         }
       } else {
