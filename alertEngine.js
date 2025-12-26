@@ -446,10 +446,18 @@ async function triggerAlert(
     alertHour
   );
 
-  const [channels] = await pool.query(
-    "SELECT * FROM brands_alert_channel WHERE brand_id = ? AND is_active = 1",
-    [rule.brand_id]
-  );
+  let channels = [];
+  if (rule.have_recipients === 1) {
+    [channels] = await pool.query(
+      "SELECT * FROM alert_channels WHERE alert_id = ?",
+      [rule.id]
+    );
+  } else {
+    [channels] = await pool.query(
+      "SELECT * FROM brands_alert_channel WHERE brand_id = ? AND is_active = 1",
+      [rule.brand_id]
+    );
+  }
 
   for (const ch of channels) {
     if (ch.channel_type !== "email") continue;
