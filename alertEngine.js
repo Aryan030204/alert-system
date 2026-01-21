@@ -1,6 +1,8 @@
 const pool = require("./db");
 const { evaluate } = require("mathjs");
 const nodemailer = require("nodemailer");
+const { MongoClient } = require("mongodb");
+let mongoClient = null;
 
 /* -------------------------------------------------------
    Historical Average Lookup (using lookback_days)
@@ -36,7 +38,7 @@ async function getHistoricalAvgForMetric(
 
     const dbName = rows[0].db_name;
     const days = Number(lookbackDays) > 0 ? Number(lookbackDays) : 7;
-    
+
     console.log(`📊 Database: ${dbName}`);
     console.log(`📊 Date Range: Last ${days} days (excluding today)`);
 
@@ -44,7 +46,7 @@ async function getHistoricalAvgForMetric(
     if (metricName === "aov") {
       console.log(`📊 Source Table: ${dbName}.hour_wise_sales`);
       console.log(`📊 Formula: SUM(total_sales) / SUM(number_of_orders)`);
-      
+
       const [avgRows] = await pool.query(
         `
         SELECT 
@@ -68,7 +70,7 @@ async function getHistoricalAvgForMetric(
       const raw = avgRows[0]?.avg_val;
       const dayCount = avgRows[0]?.day_count ?? 0;
       console.log(`📊 Days with data: ${dayCount}`);
-      
+
       if (!raw || dayCount === 0) {
         console.log(`📊 ❌ No historical data found`);
         return null;
@@ -84,7 +86,7 @@ async function getHistoricalAvgForMetric(
     if (metricName === "conversion_rate") {
       console.log(`📊 Source Tables: ${dbName}.hourly_sessions_summary_shopify + ${dbName}.hour_wise_sales`);
       console.log(`📊 Formula: (SUM(orders) / SUM(sessions)) × 100`);
-      
+
       // First get daily breakdown for detailed logging
       const [dailyBreakdown] = await pool.query(
         `
@@ -105,12 +107,12 @@ async function getHistoricalAvgForMetric(
         `,
         [days, hourCutoff]
       );
-      
+
       console.log(`📊 Daily Breakdown (hour 0 to ${hourCutoff - 1}):`);
       dailyBreakdown.forEach(row => {
         console.log(`📊   ${row.date}: Sessions=${row.total_sessions}, Orders=${row.total_orders}, CVR=${Number(row.daily_cvr).toFixed(4)}%`);
       });
-      
+
       const [avgRows] = await pool.query(
         `
         SELECT 
@@ -136,7 +138,7 @@ async function getHistoricalAvgForMetric(
       const raw = avgRows[0]?.avg_val;
       const dayCount = avgRows[0]?.day_count ?? 0;
       console.log(`📊 Days with data: ${dayCount}`);
-      
+
       if (!raw || dayCount === 0) {
         console.log(`📊 ❌ No historical data found`);
         return null;
@@ -158,7 +160,7 @@ async function getHistoricalAvgForMetric(
       const col = sessionMetrics[metricName];
       console.log(`📊 Source Table: ${dbName}.hourly_sessions_summary_shopify`);
       console.log(`📊 Column: ${col}`);
-      
+
       // Get daily breakdown for logging
       const [dailyBreakdown] = await pool.query(
         `
@@ -174,12 +176,12 @@ async function getHistoricalAvgForMetric(
         `,
         [days, hourCutoff]
       );
-      
+
       console.log(`📊 Daily Breakdown (hour 0 to ${hourCutoff - 1}):`);
       dailyBreakdown.forEach(row => {
         console.log(`📊   ${row.date}: ${col}=${row.daily_val}`);
       });
-      
+
       const [avgRows] = await pool.query(
         `
         SELECT 
@@ -202,7 +204,7 @@ async function getHistoricalAvgForMetric(
       const raw = avgRows[0]?.avg_val;
       const dayCount = avgRows[0]?.day_count ?? 0;
       console.log(`📊 Days with data: ${dayCount}`);
-      
+
       if (!raw || dayCount === 0) {
         console.log(`📊 ❌ No historical data found`);
         return null;
@@ -228,7 +230,7 @@ async function getHistoricalAvgForMetric(
 
     console.log(`📊 Source Table: ${dbName}.hour_wise_sales`);
     console.log(`📊 Column: ${col}`);
-    
+
     // Get daily breakdown for logging
     const [dailyBreakdown] = await pool.query(
       `
@@ -244,7 +246,7 @@ async function getHistoricalAvgForMetric(
       `,
       [days, hourCutoff]
     );
-    
+
     console.log(`📊 Daily Breakdown (hour 0 to ${hourCutoff - 1}):`);
     dailyBreakdown.forEach(row => {
       console.log(`📊   ${row.date}: ${col}=${row.daily_val}`);
@@ -287,11 +289,30 @@ async function getHistoricalAvgForMetric(
    Load Active Alerts
 --------------------------------------------------------*/
 async function loadRulesForBrand(brandId) {
-  const [rules] = await pool.query(
-    "SELECT * FROM alerts WHERE brand_id = ? AND is_active = 1",
-    [brandId]
-  );
-  return rules;
+  try {
+    if (!mongoClient) {
+      if (!process.env.MONGO_URI) {
+        throw new Error("MONGO_URI not set");
+      }
+      mongoClient = new MongoClient(process.env.MONGO_URI);
+      await mongoClient.connect();
+      console.log("✅ Connected to MongoDB");
+    }
+
+    // Assuming the URI points to the correct DB, or using default
+    const db = mongoClient.db();
+
+    // Ensure brand_id is Number to match the document structure (e.g. brand_id: 4)
+    const rules = await db.collection("alerts").find({
+      brand_id: Number(brandId),
+      is_active: 1
+    }).toArray();
+
+    return rules;
+  } catch (err) {
+    console.error("🔥 Error loading rules from MongoDB:", err.message);
+    return [];
+  }
 }
 
 /* -------------------------------------------------------
@@ -317,6 +338,24 @@ function parseChannelConfig(raw) {
   }
 }
 
+async function getAllRules() {
+  try {
+    if (!mongoClient) {
+      if (!process.env.MONGO_URI) {
+        throw new Error("MONGO_URI not set");
+      }
+      mongoClient = new MongoClient(process.env.MONGO_URI);
+      await mongoClient.connect();
+    }
+    const db = mongoClient.db();
+    const rules = await db.collection("alerts").find({}).toArray();
+    return rules;
+  } catch (err) {
+    console.error("🔥 Error fetching all rules:", err.message);
+    return [];
+  }
+}
+
 /* -------------------------------------------------------
    Compute Metric
 --------------------------------------------------------*/
@@ -331,7 +370,11 @@ async function computeMetric(rule, event) {
       return val;
     }
     if (rule.metric_type === "derived") {
-      return evaluate(rule.formula, event);
+      const val = evaluate(rule.formula, event);
+      if (typeof val === "number") {
+        if (Number.isNaN(val) || !Number.isFinite(val)) return 0;
+      }
+      return val;
     }
   } catch (err) {
     if (err.message.includes("Undefined symbol")) {
@@ -363,33 +406,35 @@ function normalizeEventKeys(event) {
    Cooldown
 --------------------------------------------------------*/
 async function checkCooldown(alertId, cooldownMinutes) {
-  const [rows] = await pool.query(
-    `
-      SELECT triggered_at 
-      FROM alert_history 
-      WHERE alert_id = ?
-      ORDER BY triggered_at DESC 
-      LIMIT 1
-    `,
-    [alertId]
-  );
+  try {
+    const db = mongoClient.db();
+    const rows = await db.collection("alert_history")
+      .find({ alert_id: alertId })
+      .sort({ triggered_at: -1 })
+      .limit(1)
+      .toArray();
 
-  if (!rows.length) return false;
 
-  // --- Convert triggered_at (UTC from DB) → IST ---
-  const triggeredUTC = new Date(rows[0].triggered_at);
-  const triggeredIST = new Date(
-    triggeredUTC.toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
-  );
+    if (!rows.length) return false;
 
-  // --- Convert NOW → IST ---
-  const nowIST = new Date(
-    new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
-  );
+    // --- Convert triggered_at (UTC from DB) → IST ---
+    const triggeredUTC = new Date(rows[0].triggered_at);
+    const triggeredIST = new Date(
+      triggeredUTC.toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
+    );
 
-  const minutes = (nowIST - triggeredIST) / 60000;
+    // --- Convert NOW → IST ---
+    const nowIST = new Date(
+      new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
+    );
 
-  return minutes < cooldownMinutes;
+    const minutes = (nowIST - triggeredIST) / 60000;
+
+    return minutes < cooldownMinutes;
+  } catch (err) {
+    console.error("🔥 Error checking cooldown:", err.message);
+    return false;
+  }
 }
 
 /* -------------------------------------------------------
@@ -510,18 +555,17 @@ function generateEmailHTML(
           <p style="margin:0; font-size:14px; color:#92400e;">
             <strong>Metric:</strong> ${metricLabel}<br>
             <strong>Threshold Type:</strong> ${rule.threshold_type.replace(
-              /_/g,
-              " "
-            )}<br>
+    /_/g,
+    " "
+  )}<br>
             <strong>Severity:</strong> ${rule.severity.toUpperCase()}
-            ${
-              typeof alertHour === "number"
-                ? `<br><strong>Hour:</strong> ${alertHour} (data up to hour ${Math.max(
-                    0,
-                    alertHour
-                  )}h)`
-                : ""
-            }
+            ${typeof alertHour === "number"
+      ? `<br><strong>Hour:</strong> ${alertHour} (data up to hour ${Math.max(
+        0,
+        alertHour
+      )}h)`
+      : ""
+    }
           </p>
         </div>
 
@@ -542,8 +586,26 @@ function generateEmailHTML(
     </div>
   </body>
   </html>
+    <div style="background:#f3f4f6; padding:14px; text-align:center;">
+        <span style="font-size:12px; color:#6b7280;">
+          © ${new Date().getFullYear()} Datum Inc.
+        </span>
+      </div>
+    </div>
+  </body>
+  </html>
   `;
+
+  if (require('./alertEngine').TEST_MODE_FLAG) {
+    return `
+      <div style="background-color: #fff3cd; color: #856404; padding: 10px; text-align: center; font-weight: bold; border: 1px solid #ffeeba;">
+        🚧 THIS IS A TEST ALERT SENT FOR TESTING THE ALERT SYSTEM 🚧
+      </div>
+     ` + html;
+  }
+  return html;
 }
+
 
 /* -------------------------------------------------------
    Send Email
@@ -564,9 +626,8 @@ async function sendEmail(cfg, subject, html) {
     });
 
     await transporter.sendMail({
-      from: `"Alerting System" <${
-        cfg.smtp_user || process.env.ALERT_EMAIL_USER
-      }>`,
+      from: `"Alerting System" <${cfg.smtp_user || process.env.ALERT_EMAIL_USER
+        }>`,
       to: cfg.to.join(","),
       subject,
       html,
@@ -582,8 +643,8 @@ async function sendEmail(cfg, subject, html) {
    Trigger Alert
 --------------------------------------------------------*/
 // 🧪 TEST MODE: Set to true to send all alerts to single test email
-const TEST_MODE = false;
-const TEST_EMAIL = "aroraaryan997@gmail.com";
+const TEST_MODE = process.env.TEST_MODE;
+const TEST_EMAIL = process.env.TEST_EMAIL;
 
 async function triggerAlert(
   rule,
@@ -612,15 +673,31 @@ async function triggerAlert(
         ? Math.abs(dropPercent).toFixed(2)
         : "0.00";
     const endHour = alertHour || 0;
-    const subject = `${subjectMetricName} Alert | ${dropVal}% Drop | ${event.brand.toUpperCase()} | 0 - ${endHour} Hours`;
+    const subject = `[TEST ALERT] ${subjectMetricName} Alert | ${dropVal}% Drop | ${event.brand.toUpperCase()} | 0 - ${endHour} Hours`;
 
     console.log(`🧪 TEST MODE: Sending to ${TEST_EMAIL} only`);
-    await sendEmail({ to: [TEST_EMAIL] }, subject, emailHTML);
 
-    await pool.query(
-      "INSERT INTO alert_history (alert_id, brand_id, payload) VALUES (?, ?, ?)",
-      [rule.id, rule.brand_id, JSON.stringify(event)]
-    );
+    // Inject test banner into HTML
+    const testHtml = `
+      <div style="background-color: #fff3cd; color: #856404; padding: 10px; text-align: center; font-weight: bold; border: 1px solid #ffeeba; font-family: Arial, sans-serif; margin-bottom: 20px;">
+        🚧 THIS IS A TEST ALERT SENT FOR TESTING THE ALERT SYSTEM 🚧
+      </div>
+      ${emailHTML}
+    `;
+
+    await sendEmail({ to: [TEST_EMAIL] }, subject, testHtml);
+
+    try {
+      const db = mongoClient.db();
+      await db.collection("alert_history").insertOne({
+        alert_id: rule.id,
+        brand_id: rule.brand_id,
+        payload: event,
+        triggered_at: new Date()
+      });
+    } catch (err) {
+      console.error("🔥 Error saving test alert history to MongoDB:", err.message);
+    }
     return;
   }
 
@@ -656,13 +733,20 @@ async function triggerAlert(
 
     const subject = `${subjectMetricName} Alert | ${dropVal}% Drop | ${event.brand.toUpperCase()} | 0 - ${endHour} Hours`;
 
-    await sendEmail(cfg, subject, emailHTML);
   }
 
-  await pool.query(
-    "INSERT INTO alert_history (alert_id, brand_id, payload) VALUES (?, ?, ?)",
-    [rule.id, rule.brand_id, JSON.stringify(event)]
-  );
+
+  try {
+    const db = mongoClient.db();
+    await db.collection("alert_history").insertOne({
+      alert_id: rule.id,
+      brand_id: rule.brand_id,
+      payload: event,
+      triggered_at: new Date()
+    });
+  } catch (err) {
+    console.error("🔥 Error saving alert history to MongoDB:", err.message);
+  }
 }
 
 /* -------------------------------------------------------
@@ -723,11 +807,11 @@ async function processIncomingEvent(event) {
     );
     if (brands.length > 0) {
       brandId = brands[0].id;
-      event.brand_id = brandId; 
+      event.brand_id = brandId;
       if (!event.brand) event.brand = event.brand_key;
     } else {
       console.warn("⚠ brand_key not found:", event.brand_key);
-      return; 
+      return;
     }
   }
 
@@ -785,14 +869,14 @@ async function processIncomingEvent(event) {
     console.log(`🎯 Threshold Value: ${rule.threshold_value}`);
     console.log(`🎯 Lookback Days: ${rule.lookback_days || 7}`);
     console.log(`🎯 Cooldown: ${rule.cooldown_minutes} minutes`);
-    
+
     const metricValue = await computeMetric(rule, event);
-    
+
     if (metricValue == null) {
       console.log(`🎯 ❌ Metric value is NULL - skipping rule`);
       continue;
     }
-    
+
     console.log(`🎯 Current Metric Value: ${metricValue}`);
 
     let avgHistoric = null;
@@ -803,10 +887,17 @@ async function processIncomingEvent(event) {
     if (rule.threshold_type.includes("percentage") || (rule.metric_name === "performance" && isAbsoluteCondition)) {
       if (rule.metric_name === "performance") {
         // --- Daily Baseline Reset Logic ---
-        const [history] = await pool.query(
-          "SELECT payload, triggered_at FROM alert_history WHERE alert_id = ? ORDER BY triggered_at DESC LIMIT 1",
-          [rule.id]
-        );
+        let history = [];
+        try {
+          const db = mongoClient.db();
+          history = await db.collection("alert_history")
+            .find({ alert_id: rule.id })
+            .sort({ triggered_at: -1 })
+            .limit(1)
+            .toArray();
+        } catch (err) {
+          console.error("🔥 Error fetching performance history:", err.message);
+        }
 
         // Get Today in IST
         const nowIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
@@ -860,7 +951,7 @@ async function processIncomingEvent(event) {
 
         if (avgHistoric > 0) {
           dropPercent = ((avgHistoric - metricValue) / avgHistoric) * 100;
-          
+
           console.log(`\n📉 ═══════════════════════════════════════════════════════`);
           console.log(`📉 DROP/RISE CALCULATION`);
           console.log(`📉 ═══════════════════════════════════════════════════════`);
@@ -885,7 +976,7 @@ async function processIncomingEvent(event) {
     console.log(`⚖️ Current Metric: ${metricValue}`);
     console.log(`⚖️ Historical AVG: ${avgHistoric ?? 'N/A'}`);
     console.log(`⚖️ Drop/Rise %: ${dropPercent?.toFixed(2) ?? 'N/A'}%`);
-    
+
     const shouldTriggerNormal = await evaluateThreshold(
       rule,
       metricValue,
@@ -928,8 +1019,7 @@ async function processIncomingEvent(event) {
 
         if (hasCrit && hasDrop && dropPercent >= crit) {
           console.log(
-            `⚠️ Critical override for rule ${
-              rule.id
+            `⚠️ Critical override for rule ${rule.id
             }: drop=${dropPercent.toFixed(
               2
             )}% >= critical=${crit}% — alert will fire even in quiet hours.`
@@ -938,9 +1028,8 @@ async function processIncomingEvent(event) {
         } else {
           console.log(
             `⏳ Quiet hours active for rule ${rule.id}: Skipped. (${qs}:00 → ${qe}:00 IST) ` +
-              `drop=${hasDrop ? dropPercent.toFixed(2) : "N/A"}%, critical=${
-                hasCrit ? crit : "N/A"
-              }`
+            `drop=${hasDrop ? dropPercent.toFixed(2) : "N/A"}%, critical=${hasCrit ? crit : "N/A"
+            }`
           );
           continue;
         }
@@ -969,7 +1058,7 @@ async function processIncomingEvent(event) {
     console.log(`🚨 Historical AVG: ${avgHistoric}`);
     console.log(`🚨 Drop/Rise: ${dropPercent?.toFixed(2)}%`);
     console.log(`🚨 ═══════════════════════════════════════════════════════\n`);
-    
+
     await triggerAlert(
       rule,
       event,
@@ -981,4 +1070,4 @@ async function processIncomingEvent(event) {
   }
 }
 
-module.exports = { processIncomingEvent };
+module.exports = { processIncomingEvent, getAllRules, TEST_MODE, TEST_EMAIL };
