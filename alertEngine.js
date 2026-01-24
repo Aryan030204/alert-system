@@ -16,15 +16,11 @@ async function getHistoricalAvgForMetric(
   lookbackDays
 ) {
   try {
-    console.log(`\n📊 ═══════════════════════════════════════════════════════`);
-    console.log(`📊 HISTORICAL AVG LOOKUP: ${metricName}`);
-    console.log(`📊 ═══════════════════════════════════════════════════════`);
-    console.log(`📊 Brand ID: ${brandId}`);
-    console.log(`📊 Hour Cutoff: ${hourCutoff} (data from hour 0 to ${hourCutoff - 1})`);
-    console.log(`📊 Lookback Days: ${lookbackDays}`);
+    const days = Number(lookbackDays) > 0 ? Number(lookbackDays) : 7;
+    console.log(`\n📚 [HISTORICAL DATA] Looking up '${metricName}' for last ${days} days (Hour 0-${hourCutoff - 1})`);
 
     if (hourCutoff <= 0) {
-      console.log(`📊 ❌ Skipped: hourCutoff <= 0`);
+      console.log(`   ⏭  Skipped: hourCutoff <= 0 (not enough data for today)`);
       return null;
     }
 
@@ -32,21 +28,14 @@ async function getHistoricalAvgForMetric(
       brandId,
     ]);
     if (!rows.length) {
-      console.log(`📊 ❌ Skipped: Brand not found`);
+      console.log(`   ❌ Skipped: Brand not found in MySQL`);
       return null;
     }
 
     const dbName = rows[0].db_name;
-    const days = Number(lookbackDays) > 0 ? Number(lookbackDays) : 7;
-
-    console.log(`📊 Database: ${dbName}`);
-    console.log(`📊 Date Range: Last ${days} days (excluding today)`);
 
     // AOV AVG (from hour_wise_sales - sales data)
     if (metricName === "aov") {
-      console.log(`📊 Source Table: ${dbName}.hour_wise_sales`);
-      console.log(`📊 Formula: SUM(total_sales) / SUM(number_of_orders)`);
-
       const [avgRows] = await pool.query(
         `
         SELECT 
@@ -69,50 +58,19 @@ async function getHistoricalAvgForMetric(
 
       const raw = avgRows[0]?.avg_val;
       const dayCount = avgRows[0]?.day_count ?? 0;
-      console.log(`📊 Days with data: ${dayCount}`);
 
       if (!raw || dayCount === 0) {
-        console.log(`📊 ❌ No historical data found`);
+        console.log(`   ⚠️  No history for AOV`);
         return null;
       }
 
       const rounded = Number(Number(raw).toFixed(2));
-      console.log(`📊 ✅ Historical AVG: ${rounded}`);
-      console.log(`📊 ═══════════════════════════════════════════════════════\n`);
+      console.log(`   ✅  Historical AOV: ${rounded} (avg of ${dayCount} days)`);
       return rounded;
     }
 
     // CVR AVG (sessions from Shopify, orders from hour_wise_sales)
     if (metricName === "conversion_rate") {
-      console.log(`📊 Source Tables: ${dbName}.hourly_sessions_summary_shopify + ${dbName}.hour_wise_sales`);
-      console.log(`📊 Formula: (SUM(orders) / SUM(sessions)) × 100`);
-
-      // First get daily breakdown for detailed logging
-      const [dailyBreakdown] = await pool.query(
-        `
-        SELECT 
-          s.date,
-          SUM(s.number_of_sessions) AS total_sessions,
-          SUM(h.number_of_orders) AS total_orders,
-          (SUM(h.number_of_orders) / NULLIF(SUM(s.number_of_sessions), 0)) * 100 AS daily_cvr
-        FROM ${dbName}.hourly_sessions_summary_shopify s
-        LEFT JOIN ${dbName}.hour_wise_sales h 
-          ON s.date = h.date AND s.hour = h.hour
-        WHERE s.date >= DATE(CONVERT_TZ(NOW(), 'UTC', 'Asia/Kolkata')) - INTERVAL ? DAY
-          AND s.date < DATE(CONVERT_TZ(NOW(), 'UTC', 'Asia/Kolkata'))
-          AND s.hour < ?
-        GROUP BY s.date
-        HAVING SUM(s.number_of_sessions) > 0
-        ORDER BY s.date;
-        `,
-        [days, hourCutoff]
-      );
-
-      console.log(`📊 Daily Breakdown (hour 0 to ${hourCutoff - 1}):`);
-      dailyBreakdown.forEach(row => {
-        console.log(`📊   ${row.date}: Sessions=${row.total_sessions}, Orders=${row.total_orders}, CVR=${Number(row.daily_cvr).toFixed(4)}%`);
-      });
-
       const [avgRows] = await pool.query(
         `
         SELECT 
@@ -137,16 +95,14 @@ async function getHistoricalAvgForMetric(
 
       const raw = avgRows[0]?.avg_val;
       const dayCount = avgRows[0]?.day_count ?? 0;
-      console.log(`📊 Days with data: ${dayCount}`);
 
       if (!raw || dayCount === 0) {
-        console.log(`📊 ❌ No historical data found`);
+        console.log(`   ⚠️  No history for CVR`);
         return null;
       }
 
       const rounded = Number(Number(raw).toFixed(4));
-      console.log(`📊 ✅ Historical AVG: ${rounded}%`);
-      console.log(`📊 ═══════════════════════════════════════════════════════\n`);
+      console.log(`   ✅  Historical CVR: ${rounded}% (avg of ${dayCount} days)`);
       return rounded;
     }
 
@@ -158,30 +114,6 @@ async function getHistoricalAvgForMetric(
 
     if (sessionMetrics[metricName]) {
       const col = sessionMetrics[metricName];
-      console.log(`📊 Source Table: ${dbName}.hourly_sessions_summary_shopify`);
-      console.log(`📊 Column: ${col}`);
-
-      // Get daily breakdown for logging
-      const [dailyBreakdown] = await pool.query(
-        `
-        SELECT 
-          date,
-          SUM(${col}) AS daily_val
-        FROM ${dbName}.hourly_sessions_summary_shopify
-        WHERE date >= DATE(CONVERT_TZ(NOW(), 'UTC', 'Asia/Kolkata')) - INTERVAL ? DAY
-          AND date < DATE(CONVERT_TZ(NOW(), 'UTC', 'Asia/Kolkata'))
-          AND hour < ?
-        GROUP BY date
-        ORDER BY date;
-        `,
-        [days, hourCutoff]
-      );
-
-      console.log(`📊 Daily Breakdown (hour 0 to ${hourCutoff - 1}):`);
-      dailyBreakdown.forEach(row => {
-        console.log(`📊   ${row.date}: ${col}=${row.daily_val}`);
-      });
-
       const [avgRows] = await pool.query(
         `
         SELECT 
@@ -203,16 +135,14 @@ async function getHistoricalAvgForMetric(
 
       const raw = avgRows[0]?.avg_val;
       const dayCount = avgRows[0]?.day_count ?? 0;
-      console.log(`📊 Days with data: ${dayCount}`);
 
       if (!raw || dayCount === 0) {
-        console.log(`📊 ❌ No historical data found`);
+        console.log(`   ⚠️  No history for ${metricName}`);
         return null;
       }
 
       const rounded = Number(Number(raw).toFixed(2));
-      console.log(`📊 ✅ Historical AVG: ${rounded}`);
-      console.log(`📊 ═══════════════════════════════════════════════════════\n`);
+      console.log(`   ✅  Historical ${metricName}: ${rounded} (avg of ${dayCount} days)`);
       return rounded;
     }
 
@@ -224,33 +154,9 @@ async function getHistoricalAvgForMetric(
 
     const col = salesMetrics[metricName];
     if (!col) {
-      console.log(`📊 ❌ Unknown metric: ${metricName}`);
+      console.log(`   ❌ Unknown metric for history: ${metricName}`);
       return null;
     }
-
-    console.log(`📊 Source Table: ${dbName}.hour_wise_sales`);
-    console.log(`📊 Column: ${col}`);
-
-    // Get daily breakdown for logging
-    const [dailyBreakdown] = await pool.query(
-      `
-      SELECT 
-        date,
-        SUM(${col}) AS daily_val
-      FROM ${dbName}.hour_wise_sales
-      WHERE date >= DATE(CONVERT_TZ(NOW(), 'UTC', 'Asia/Kolkata')) - INTERVAL ? DAY
-        AND date < DATE(CONVERT_TZ(NOW(), 'UTC', 'Asia/Kolkata'))
-        AND hour < ?
-      GROUP BY date
-      ORDER BY date;
-      `,
-      [days, hourCutoff]
-    );
-
-    console.log(`📊 Daily Breakdown (hour 0 to ${hourCutoff - 1}):`);
-    dailyBreakdown.forEach(row => {
-      console.log(`📊   ${row.date}: ${col}=${row.daily_val}`);
-    });
 
     const [avgRows] = await pool.query(
       `
@@ -273,14 +179,17 @@ async function getHistoricalAvgForMetric(
 
     const raw = avgRows[0]?.avg_val;
     const dayCount = avgRows[0]?.day_count ?? 0;
-    console.log(`📊 Days with data: ${dayCount}`);
-    if (!raw || dayCount === 0) return null;
+
+    if (!raw || dayCount === 0) {
+      console.log(`   ⚠️ No history for ${metricName}`);
+      return null;
+    }
 
     const rounded = Number(Number(raw).toFixed(2));
-    console.log(`✓ ${metricName} historical avg = ${rounded}`);
+    console.log(`   ✅  Historical ${metricName}: ${rounded} (avg of ${dayCount} days)`);
     return rounded;
   } catch (err) {
-    console.error(`🔥 historical avg error for ${metricName}:`, err.message);
+    console.error(`   🔥 Error in historical avg for ${metricName}:`, err.message);
     return null;
   }
 }
@@ -791,11 +700,12 @@ async function evaluateThreshold(rule, metricValue, avgHistoric, dropPercent) {
 /* -------------------------------------------------------
    Main Controller
 --------------------------------------------------------*/
+/* -------------------------------------------------------
+   Main Controller
+--------------------------------------------------------*/
 async function processIncomingEvent(event) {
   if (typeof event === "string") event = JSON.parse(event);
   event = normalizeEventKeys(event);
-
-  console.log("📥 Event Received:", event);
 
   let brandId = event.brand_id;
 
@@ -810,17 +720,18 @@ async function processIncomingEvent(event) {
       event.brand_id = brandId;
       if (!event.brand) event.brand = event.brand_key;
     } else {
-      console.warn("⚠ brand_key not found:", event.brand_key);
+      console.warn("   ⚠️ brand_key not found:", event.brand_key);
       return;
     }
   }
 
   if (!brandId) {
-    console.error("❌ missing brand_id and brand_key");
+    console.error("   ❌ missing brand_id and brand_key");
     return;
   }
 
   const rules = await loadRulesForBrand(brandId);
+  const brandName = (event.brand || event.brand_key || "Unknown").toUpperCase();
 
   // current IST hour
   const currentISTHour = Number(
@@ -831,53 +742,32 @@ async function processIncomingEvent(event) {
     }).format(new Date())
   );
 
-  console.log("Current IST Hour:", currentISTHour);
-
-  // Determine hourCutoff (existing logic)
   const istHour = currentISTHour;
   const hourCutoff =
     typeof event.hour === "number" && event.hour >= 0 && event.hour <= 23
       ? event.hour
       : istHour;
 
-  console.log(`\n🔧 ═══════════════════════════════════════════════════════`);
-  console.log(`🔧 PROCESSING CONFIG`);
-  console.log(`🔧 ═══════════════════════════════════════════════════════`);
-  console.log(`🔧 Brand ID: ${brandId}`);
-  console.log(`🔧 Brand Name: ${event.brand || event.brand_key}`);
-  console.log(`🔧 Hour from event: ${event.hour ?? 'NOT PROVIDED'}`);
-  console.log(`🔧 Hour Cutoff (used): ${hourCutoff}`);
-  console.log(`🔧 Active Rules Found: ${rules.length}`);
-  console.log(`🔧 ═══════════════════════════════════════════════════════\n`);
-
-  const metricsNeedingAvg = [
-    "total_orders",
-    "total_atc_sessions",
-    "total_sessions",
-    "total_sales",
-    "aov",
-    "conversion_rate",
-  ];
+  console.log(`\n\n══════════════════════════════════════════════════════════════════════════`);
+  console.log(`🚀 PROCESSING EVENT | Brand: ${brandName} (ID: ${brandId}) | Hour: ${hourCutoff}`);
+  console.log(`   Current IST Hour: ${currentISTHour}`);
+  console.log(`   Active Rules: ${rules.length}`);
+  console.log(`══════════════════════════════════════════════════════════════════════════`);
 
   for (const rule of rules) {
-    console.log(`\n🎯 ═══════════════════════════════════════════════════════`);
-    console.log(`🎯 EVALUATING RULE: ${rule.id} - ${rule.name}`);
-    console.log(`🎯 ═══════════════════════════════════════════════════════`);
-    console.log(`🎯 Metric: ${rule.metric_name}`);
-    console.log(`🎯 Type: ${rule.metric_type}`);
-    console.log(`🎯 Threshold Type: ${rule.threshold_type}`);
-    console.log(`🎯 Threshold Value: ${rule.threshold_value}`);
-    console.log(`🎯 Lookback Days: ${rule.lookback_days || 7}`);
-    console.log(`🎯 Cooldown: ${rule.cooldown_minutes} minutes`);
+    console.log(`\n🔍 [RULE CHECK] "${rule.name}" (ID: ${rule.id})`);
+    console.log(`   📌 Type: ${rule.metric_type} | Metric: ${rule.metric_name}`);
+    console.log(`   📌 Threshold: ${rule.threshold_type} ${rule.threshold_value}%`);
+    console.log(`   📌 Lookback: ${rule.lookback_days || 7} days | Cooldown: ${rule.cooldown_minutes}m`);
 
     const metricValue = await computeMetric(rule, event);
 
     if (metricValue == null) {
-      console.log(`🎯 ❌ Metric value is NULL - skipping rule`);
+      console.log(`   ⏭  Metric value missing in event. Skipping.`);
       continue;
     }
 
-    console.log(`🎯 Current Metric Value: ${metricValue}`);
+    console.log(`   📊 Current Value: ${Number(metricValue).toFixed(2)}`);
 
     let avgHistoric = null;
     let dropPercent = null;
@@ -931,143 +821,67 @@ async function processIncomingEvent(event) {
 
         if (avgHistoric != null) {
           dropPercent = ((avgHistoric - metricValue) / avgHistoric) * 100;
-          console.log(`✓ performance = ${metricValue}`);
-          console.log(`✓ performance prior value for rule ${rule.id} = ${avgHistoric}`);
-          if (dropPercent != null) {
-            console.log(
-              `✓ performance drop percent for rule ${rule.id} = ${dropPercent.toFixed(2)}%`
-            );
-          }
+          console.log(`   📉 Performance Check: Prior=${avgHistoric} Current=${metricValue} Drop=${dropPercent.toFixed(2)}%`);
         }
       } else {
         const lookbackDays = rule.lookback_days || 7;
 
-        avgHistoric = await getHistoricalAvgForMetric(
-          brandId,
-          rule.metric_name,
-          hourCutoff,
-          lookbackDays
-        );
+        avgHistoric = await getHistoricalAvgForMetric(brandId, rule.metric_name, hourCutoff, rule.lookback_days);
 
-        if (avgHistoric > 0) {
+        if (avgHistoric != null && avgHistoric > 0) {
           dropPercent = ((avgHistoric - metricValue) / avgHistoric) * 100;
-
-          console.log(`\n📉 ═══════════════════════════════════════════════════════`);
-          console.log(`📉 DROP/RISE CALCULATION`);
-          console.log(`📉 ═══════════════════════════════════════════════════════`);
-          console.log(`📉 Historical AVG: ${avgHistoric}`);
-          console.log(`📉 Current Value: ${metricValue}`);
-          console.log(`📉 Formula: ((${avgHistoric} - ${metricValue}) / ${avgHistoric}) × 100`);
-          console.log(`📉 Result: ${dropPercent.toFixed(4)}%`);
-          console.log(`📉 ${dropPercent > 0 ? '⬇️ DROP' : '⬆️ RISE'}: ${Math.abs(dropPercent).toFixed(2)}%`);
-          console.log(`📉 ═══════════════════════════════════════════════════════\n`);
+          const direction = dropPercent > 0 ? "DROP 🔻" : "RISE 🔺";
+          console.log(`   📉 Comparison: Historic=${avgHistoric} vs Current=${metricValue}`);
+          console.log(`   📉 Result: ${Math.abs(dropPercent).toFixed(2)}% ${direction}`);
         } else {
-          console.log(`📉 ⚠️ No historical avg - cannot calculate drop percentage`);
+          console.log(`   ⚠️ No historical avg - cannot calculate drop percentage`);
         }
       }
     }
 
     // 1️⃣ Normal threshold check (must pass first)
-    console.log(`\n⚖️ ═══════════════════════════════════════════════════════`);
-    console.log(`⚖️ THRESHOLD EVALUATION`);
-    console.log(`⚖️ ═══════════════════════════════════════════════════════`);
-    console.log(`⚖️ Threshold Type: ${rule.threshold_type}`);
-    console.log(`⚖️ Threshold Value: ${rule.threshold_value}`);
-    console.log(`⚖️ Current Metric: ${metricValue}`);
-    console.log(`⚖️ Historical AVG: ${avgHistoric ?? 'N/A'}`);
-    console.log(`⚖️ Drop/Rise %: ${dropPercent?.toFixed(2) ?? 'N/A'}%`);
+    const shouldTriggerNormal = await evaluateThreshold(rule, metricValue, avgHistoric, dropPercent);
 
-    const shouldTriggerNormal = await evaluateThreshold(
-      rule,
-      metricValue,
-      avgHistoric,
-      dropPercent
-    );
-
-    console.log(`⚖️ Threshold Check: ${rule.threshold_type} >= ${rule.threshold_value}?`);
-    console.log(`⚖️ Result: ${shouldTriggerNormal ? '✅ PASSED (alert should fire)' : '❌ FAILED (no alert)'}`);
-    console.log(`⚖️ ═══════════════════════════════════════════════════════\n`);
-
-    if (!shouldTriggerNormal) {
-      // If it doesn't pass normal threshold, we don't even consider quiet/critical.
+    if (shouldTriggerNormal) {
+      console.log(`   ⚠️  Threshold Breached: YES`);
+    } else {
+      console.log(`   🆗 Threshold Breached: NO`);
       continue;
     }
 
     // 2️⃣ Quiet hours + critical override
-    let inQuiet = false;
-
-    if (
-      typeof rule.quiet_hours_start === "number" &&
-      typeof rule.quiet_hours_end === "number"
-    ) {
+    if (rule.quiet_hours_start !== undefined && rule.quiet_hours_end !== undefined) {
       const qs = rule.quiet_hours_start;
       const qe = rule.quiet_hours_end;
-
-      inQuiet =
-        qs < qe
-          ? currentISTHour >= qs && currentISTHour < qe
-          : currentISTHour >= qs || currentISTHour < qe;
+      const inQuiet = qs < qe
+        ? currentISTHour >= qs && currentISTHour < qe
+        : currentISTHour >= qs || currentISTHour < qe;
 
       if (inQuiet) {
         const crit = Number(rule.critical_threshold);
-        const hasCrit =
-          !Number.isNaN(crit) &&
-          crit > 0 &&
-          rule.threshold_type === "percentage_drop";
-        const hasDrop =
-          typeof dropPercent === "number" && !Number.isNaN(dropPercent);
+        const isCritical = !Number.isNaN(crit) && crit > 0 && dropPercent >= crit;
 
-        if (hasCrit && hasDrop && dropPercent >= crit) {
-          console.log(
-            `⚠️ Critical override for rule ${rule.id
-            }: drop=${dropPercent.toFixed(
-              2
-            )}% >= critical=${crit}% — alert will fire even in quiet hours.`
-          );
-          // allow to proceed
+        if (isCritical) {
+          console.log(`   🌙 Quiet Hours (${qs}-${qe}) ACTIVE but CRITICAL override triggered!`);
         } else {
-          console.log(
-            `⏳ Quiet hours active for rule ${rule.id}: Skipped. (${qs}:00 → ${qe}:00 IST) ` +
-            `drop=${hasDrop ? dropPercent.toFixed(2) : "N/A"}%, critical=${hasCrit ? crit : "N/A"
-            }`
-          );
+          console.log(`   💤 Quiet Hours (${qs}-${qe}) ACTIVE. Alert suppressed.`);
           continue;
         }
       }
     }
 
-    // 3️⃣ Cooldown check (unchanged)
-    console.log(`\n⏰ Checking cooldown for rule ${rule.id}...`);
+    // 3️⃣ Cooldown check
     const cooldown = await checkCooldown(rule.id, rule.cooldown_minutes);
     if (cooldown) {
-      console.log(
-        `⏰ ❌ Skipped: Rule ${rule.id} (${rule.name}) is in cooldown (${rule.cooldown_minutes} minutes)`
-      );
+      console.log(`   ❄️  Cooldown ACTIVE (last triggered recently). Skipping.`);
       continue;
     }
-    console.log(`⏰ ✅ Cooldown cleared - proceeding to fire alert`);
 
-    // 4️⃣ Finally fire the alert
-    console.log(`\n🚨 ═══════════════════════════════════════════════════════`);
-    console.log(`🚨 FIRING ALERT!`);
-    console.log(`🚨 ═══════════════════════════════════════════════════════`);
-    console.log(`🚨 Rule: ${rule.id} - ${rule.name}`);
-    console.log(`🚨 Brand: ${event.brand}`);
-    console.log(`🚨 Metric: ${rule.metric_name}`);
-    console.log(`🚨 Current Value: ${metricValue}`);
-    console.log(`🚨 Historical AVG: ${avgHistoric}`);
-    console.log(`🚨 Drop/Rise: ${dropPercent?.toFixed(2)}%`);
-    console.log(`🚨 ═══════════════════════════════════════════════════════\n`);
-
-    await triggerAlert(
-      rule,
-      event,
-      metricValue,
-      avgHistoric,
-      dropPercent,
-      hourCutoff
-    );
+    // 4️⃣ Fire
+    console.log(`   🚨 FIRE ALERT! Sending notification...`);
+    await triggerAlert(rule, event, metricValue, avgHistoric, dropPercent, hourCutoff);
   }
+  console.log(`\n══════════════════════════════════════════════════════════════════════════\n`);
 }
 
 module.exports = { processIncomingEvent, getAllRules, TEST_MODE, TEST_EMAIL };
