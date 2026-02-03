@@ -643,6 +643,8 @@ async function triggerAlert(
 
     const subject = `${subjectMetricName} Alert | ${dropVal}% Drop | ${event.brand.toUpperCase()} | 0 - ${endHour} Hours`;
 
+    console.log(`   📧 Preparing to send email to: ${JSON.stringify(cfg.to)}`);
+    await sendEmail(cfg, subject, emailHTML);
   }
 
 
