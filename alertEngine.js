@@ -217,7 +217,8 @@ async function loadRulesForBrand(brandId) {
       is_active: true
     }).toArray();
 
-    return rules;
+    // Map _id to id if id is missing
+    return rules.map(r => ({ ...r, id: r.id || r._id }));
   } catch (err) {
     console.error("🔥 Error loading rules from MongoDB:", err.message);
     return [];
@@ -611,7 +612,7 @@ async function triggerAlert(
   }
 
   let channels = [];
-  if (rule.have_recipients === 1) {
+  if (rule.have_recipients === true || rule.have_recipients === 1) {
     [channels] = await pool.query(
       "SELECT * FROM alert_channels WHERE alert_id = ?",
       [rule.id]
