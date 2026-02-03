@@ -688,10 +688,8 @@ async function evaluateThreshold(rule, metricValue, avgHistoric, dropPercent) {
     const isWorsening = avgHistoric == null || metricValue < avgHistoric;
     return isBelow && isWorsening;
   }
-  if (rule.threshold_type === "greater_than") {
-    const isAbove = metricValue > threshold;
-    const isWorsening = avgHistoric == null || metricValue > avgHistoric;
-    return isAbove && isWorsening;
+  if (rule.threshold_type === "greater_than" || rule.threshold_type === "more_than") {
+    return metricValue > threshold;
   }
   // Fallback for legacy 'absolute' type
   return metricValue < threshold;
@@ -774,8 +772,10 @@ async function processIncomingEvent(event) {
 
     const isAbsoluteCondition = ["less_than", "greater_than", "absolute"].includes(rule.threshold_type);
 
-    if (rule.threshold_type.includes("percentage") || (rule.metric_name === "performance" && isAbsoluteCondition)) {
-      if (rule.metric_name === "performance") {
+    // always calculate historical data for context
+    if (rule.metric_name === "performance") {
+      // Only calculate if strictly needed (percentage rules)
+      if (rule.threshold_type.includes("percentage")) {
         // --- Daily Baseline Reset Logic ---
         let history = [];
         try {
@@ -823,19 +823,19 @@ async function processIncomingEvent(event) {
           dropPercent = ((avgHistoric - metricValue) / avgHistoric) * 100;
           console.log(`   📉 Performance Check: Prior=${avgHistoric} Current=${metricValue} Drop=${dropPercent.toFixed(2)}%`);
         }
+      }
+    } else {
+      const lookbackDays = rule.lookback_days || 7;
+
+      avgHistoric = await getHistoricalAvgForMetric(brandId, rule.metric_name, hourCutoff, rule.lookback_days);
+
+      if (avgHistoric != null && avgHistoric > 0) {
+        dropPercent = ((avgHistoric - metricValue) / avgHistoric) * 100;
+        const direction = dropPercent > 0 ? "DROP 🔻" : "RISE 🔺";
+        console.log(`   📉 Comparison: Historic=${avgHistoric} vs Current=${metricValue}`);
+        console.log(`   📉 Result: ${Math.abs(dropPercent).toFixed(2)}% ${direction}`);
       } else {
-        const lookbackDays = rule.lookback_days || 7;
-
-        avgHistoric = await getHistoricalAvgForMetric(brandId, rule.metric_name, hourCutoff, rule.lookback_days);
-
-        if (avgHistoric != null && avgHistoric > 0) {
-          dropPercent = ((avgHistoric - metricValue) / avgHistoric) * 100;
-          const direction = dropPercent > 0 ? "DROP 🔻" : "RISE 🔺";
-          console.log(`   📉 Comparison: Historic=${avgHistoric} vs Current=${metricValue}`);
-          console.log(`   📉 Result: ${Math.abs(dropPercent).toFixed(2)}% ${direction}`);
-        } else {
-          console.log(`   ⚠️ No historical avg - cannot calculate drop percentage`);
-        }
+        console.log(`   ⚠️ No historical avg - cannot calculate drop percentage`);
       }
     }
 
