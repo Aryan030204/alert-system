@@ -496,14 +496,6 @@ function generateEmailHTML(
     </div>
   </body>
   </html>
-    <div style="background:#f3f4f6; padding:14px; text-align:center;">
-        <span style="font-size:12px; color:#6b7280;">
-          © ${new Date().getFullYear()} Datum Inc.
-        </span>
-      </div>
-    </div>
-  </body>
-  </html>
   `;
 
   if (require('./alertEngine').TEST_MODE_FLAG) {
@@ -777,55 +769,52 @@ async function processIncomingEvent(event) {
 
     // always calculate historical data for context
     if (rule.metric_name === "performance") {
-      // Only calculate if strictly needed (percentage rules)
-      if (rule.threshold_type.includes("percentage")) {
-        // --- Daily Baseline Reset Logic ---
-        let history = [];
-        try {
-          const db = mongoClient.db();
-          history = await db.collection("alert_history")
-            .find({ alert_id: rule.id })
-            .sort({ triggered_at: -1 })
-            .limit(1)
-            .toArray();
-        } catch (err) {
-          console.error("🔥 Error fetching performance history:", err.message);
-        }
+      // --- Daily Baseline Reset Logic ---
+      let history = [];
+      try {
+        const db = mongoClient.db();
+        history = await db.collection("alert_history")
+          .find({ alert_id: rule.id })
+          .sort({ triggered_at: -1 })
+          .limit(1)
+          .toArray();
+      } catch (err) {
+        console.error("🔥 Error fetching performance history:", err.message);
+      }
 
-        // Get Today in IST
-        const nowIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-        const todayStr = nowIST.toISOString().split("T")[0];
+      // Get Today in IST
+      const nowIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+      const todayStr = nowIST.toISOString().split("T")[0];
 
-        // Default to threshold value as the prior baseline
-        avgHistoric = Number(rule.threshold_value);
+      // Default to threshold value as the prior baseline
+      avgHistoric = Number(rule.threshold_value);
 
-        if (history.length > 0) {
-          const lastIST = new Date(
-            new Date(history[0].triggered_at).toLocaleString("en-US", {
-              timeZone: "Asia/Kolkata",
-            })
-          );
-          const lastDateStr = lastIST.toISOString().split("T")[0];
+      if (history.length > 0) {
+        const lastIST = new Date(
+          new Date(history[0].triggered_at).toLocaleString("en-US", {
+            timeZone: "Asia/Kolkata",
+          })
+        );
+        const lastDateStr = lastIST.toISOString().split("T")[0];
 
-          // Only use history if it happened TODAY in IST
-          if (lastDateStr === todayStr) {
-            try {
-              const raw = history[0].payload;
-              const prevPayload = typeof raw === "string" ? JSON.parse(raw) : raw;
-              const prevValue = prevPayload.performance;
-              if (typeof prevValue === "number" && prevValue > 0) {
-                avgHistoric = prevValue;
-              }
-            } catch (e) {
-              console.error("🔥 Performance history error:", e.message);
+        // Only use history if it happened TODAY in IST
+        if (lastDateStr === todayStr) {
+          try {
+            const raw = history[0].payload;
+            const prevPayload = typeof raw === "string" ? JSON.parse(raw) : raw;
+            const prevValue = prevPayload.performance;
+            if (typeof prevValue === "number" && prevValue > 0) {
+              avgHistoric = prevValue;
             }
+          } catch (e) {
+            console.error("🔥 Performance history error:", e.message);
           }
         }
+      }
 
-        if (avgHistoric != null) {
-          dropPercent = ((avgHistoric - metricValue) / avgHistoric) * 100;
-          console.log(`   📉 Performance Check: Prior=${avgHistoric} Current=${metricValue} Drop=${dropPercent.toFixed(2)}%`);
-        }
+      if (avgHistoric != null) {
+        dropPercent = ((avgHistoric - metricValue) / avgHistoric) * 100;
+        console.log(`   📉 Performance Check: Prior=${avgHistoric} Current=${metricValue} Drop=${dropPercent.toFixed(2)}%`);
       }
     } else {
       const lookbackDays = rule.lookback_days || 7;
