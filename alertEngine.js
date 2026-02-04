@@ -214,7 +214,7 @@ async function loadRulesForBrand(brandId) {
     // Ensure brand_id is Number to match the document structure (e.g. brand_id: 4)
     const rules = await db.collection("alerts").find({
       brand_id: Number(brandId),
-      is_active: true
+      is_active: { $in: [1, true] }
     }).toArray();
 
     // Map _id to id if id is missing
