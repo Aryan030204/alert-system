@@ -545,7 +545,7 @@ async function sendEmail(cfg, subject, html) {
    Trigger Alert
 --------------------------------------------------------*/
 // 🧪 TEST MODE: Set to true to send all alerts to single test email
-const TEST_MODE = false;
+const TEST_MODE = true;
 const TEST_EMAIL = process.env.TEST_EMAIL;
 
 async function triggerAlert(
@@ -574,8 +574,17 @@ async function triggerAlert(
       dropPercent && !Number.isNaN(dropPercent)
         ? Math.abs(dropPercent).toFixed(2)
         : "0.00";
+    let dropLabel = "Drop";
+    if (["percentage_rise", "greater_than", "more_than"].includes(rule.threshold_type)) {
+      dropLabel = "Rise";
+    }
+
+    if (dropPercent && !Number.isNaN(dropPercent) && dropPercent !== 0) {
+      dropLabel = dropPercent < 0 ? "Rise" : "Drop";
+    }
+
     const endHour = alertHour || 0;
-    const subject = `[TEST ALERT] ${subjectMetricName} Alert | ${dropVal}% Drop | ${event.brand.toUpperCase()} | 0 - ${endHour} Hours`;
+    const subject = `[TEST ALERT] ${subjectMetricName} Alert | ${dropVal}% ${dropLabel} | ${event.brand.toUpperCase()} | 0 - ${endHour} Hours`;
 
     console.log(`🧪 TEST MODE: Sending to ${TEST_EMAIL} only`);
 
@@ -633,7 +642,16 @@ async function triggerAlert(
 
     const endHour = alertHour || 0;
 
-    const subject = `${subjectMetricName} Alert | ${dropVal}% Drop | ${event.brand.toUpperCase()} | 0 - ${endHour} Hours`;
+    let dropLabel = "Drop";
+    if (["percentage_rise", "greater_than", "more_than"].includes(rule.threshold_type)) {
+      dropLabel = "Rise";
+    }
+
+    if (dropPercent && !Number.isNaN(dropPercent) && dropPercent !== 0) {
+      dropLabel = dropPercent < 0 ? "Rise" : "Drop";
+    }
+
+    const subject = `${subjectMetricName} Alert | ${dropVal}% ${dropLabel} | ${event.brand.toUpperCase()} | 0 - ${endHour} Hours`;
 
     console.log(`   📧 Preparing to send email to: ${JSON.stringify(cfg.to)}`);
     await sendEmail(cfg, subject, emailHTML);
