@@ -545,7 +545,7 @@ async function sendEmail(cfg, subject, html) {
    Trigger Alert
 --------------------------------------------------------*/
 // 🧪 TEST MODE: Set to true to send all alerts to single test email
-const TEST_MODE = true;
+const TEST_MODE = false;
 const TEST_EMAIL = process.env.TEST_EMAIL;
 
 async function triggerAlert(
