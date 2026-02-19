@@ -564,7 +564,7 @@ async function sendEmail(cfg, subject, html) {
    Trigger Alert (state-aware)
 --------------------------------------------------------*/
 // 🧪 TEST MODE: Set to true to send all alerts to single test email
-const TEST_MODE = false;
+const TEST_MODE = true;
 const TEST_EMAIL = process.env.TEST_EMAIL;
 
 async function triggerAlert({
@@ -1025,10 +1025,15 @@ async function processIncomingEvent(event) {
     }
 
     // 4️⃣ Cooldown check (state NOT updated if blocked)
-    const cooldown = await checkCooldown(rule.id, rule.cooldown_minutes);
-    if (cooldown) {
-      console.log(`   ❄️  Cooldown ACTIVE (last triggered recently). Skipping (state NOT updated).`);
-      continue;
+    // EXCEPTION: If transitioning NORMAL -> CRITICAL, bypass cooldown
+    if (previousState === "NORMAL" && newState === "CRITICAL") {
+      console.log(`   🔥 CRITICAL transition (NORMAL -> CRITICAL) - Bypassing Cooldown.`);
+    } else {
+      const cooldown = await checkCooldown(rule.id, rule.cooldown_minutes);
+      if (cooldown) {
+        console.log(`   ❄️  Cooldown ACTIVE (last triggered recently). Skipping (state NOT updated).`);
+        continue;
+      }
     }
 
     // 5️⃣ Fire alert + update state
