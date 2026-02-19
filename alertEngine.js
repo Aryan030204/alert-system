@@ -348,7 +348,7 @@ async function checkCooldown(alertId, cooldownMinutes) {
 }
 
 /* -------------------------------------------------------
-   Email HTML
+   Email HTML (state-aware)
 --------------------------------------------------------*/
 function generateEmailHTML(
   event,
@@ -356,10 +356,21 @@ function generateEmailHTML(
   metricValue,
   avgHistoric,
   dropPercent,
-  alertHour
+  alertHour,
+  templateInfo
 ) {
   const brandName = String(event.brand || "").toUpperCase();
   const metricLabel = rule.metric_name.replace(/_/g, " ").toUpperCase();
+
+  // Template-driven header styling
+  const tpl = templateInfo || {};
+  const headerColor = tpl.headerColor || "#4f46e5";
+  const headerEmoji = tpl.emoji || "⚠️";
+  const headerHeading = tpl.bodyHeading || `Insight alert for ${brandName}`;
+  const headerSubtext = tpl.bodySubtext || "One of your key activity signals moved more than usual.";
+  const stateTransition = tpl.previousState && tpl.newState
+    ? `${tpl.previousState} → ${tpl.newState}`
+    : null;
 
   const hasAvg = typeof avgHistoric === "number" && !Number.isNaN(avgHistoric);
   const hasDrop = typeof dropPercent === "number" && !Number.isNaN(dropPercent);
@@ -372,10 +383,13 @@ function generateEmailHTML(
     return val;
   };
 
+  // Current value color: green for recovery, red otherwise
+  const currentValColor = tpl.newState === "NORMAL" ? "#10b981" : "#dc2626";
+
   let metricRows = `
     <tr>
       <td style="padding:10px 0; color:#6b7280; font-size:15px;">Current Value</td>
-      <td style="padding:10px 0; text-align:right; font-weight:bold; color:#dc2626; font-size:15px;">
+      <td style="padding:10px 0; text-align:right; font-weight:bold; color:${currentValColor}; font-size:15px;">
         ${formatValue(metricValue)}
       </td>
     </tr>
@@ -431,18 +445,32 @@ function generateEmailHTML(
     `;
   }
 
+  // State transition row
+  if (stateTransition) {
+    const stateBadgeColor = tpl.newState === "CRITICAL" ? "#dc2626"
+      : tpl.newState === "NORMAL" ? "#10b981" : "#f59e0b";
+    metricRows += `
+      <tr>
+        <td style="padding:10px 0; color:#6b7280; font-size:15px;">State Transition</td>
+        <td style="padding:10px 0; text-align:right; font-weight:bold; color:${stateBadgeColor}; font-size:15px;">
+          ${stateTransition}
+        </td>
+      </tr>
+    `;
+  }
+
   return `
   <html>
   <body style="margin:0; padding:0; background:#f4f6fb; font-family:Arial, sans-serif;">
     <div style="max-width:620px; margin:30px auto; background:#ffffff;
       border-radius:12px; overflow:hidden; box-shadow:0 6px 25px rgba(0,0,0,0.08);">
 
-      <div style="background:#4f46e5; padding:26px 32px; color:#ffffff;">
+      <div style="background:${headerColor}; padding:26px 32px; color:#ffffff;">
         <h2 style="margin:0; font-size:24px; font-weight:600;">
-          ⚠️ Insight alert for ${brandName}
+          ${headerEmoji} ${headerHeading}
         </h2>
         <p style="margin:6px 0 0; font-size:14px; opacity:0.9;">
-          One of your key activity signals moved more than usual.
+          ${headerSubtext}
         </p>
       </div>
 
@@ -468,7 +496,7 @@ function generateEmailHTML(
     /_/g,
     " "
   )}<br>
-            <strong>Severity:</strong> ${rule.severity.toUpperCase()}
+            <strong>Severity:</strong> ${(rule.severity || "medium").toUpperCase()}
             ${typeof alertHour === "number"
       ? `<br><strong>Hour:</strong> ${alertHour} (data up to hour ${Math.max(
         0,
@@ -497,15 +525,6 @@ function generateEmailHTML(
   </body>
   </html>
   `;
-
-  if (require('./alertEngine').TEST_MODE_FLAG) {
-    return `
-      <div style="background-color: #fff3cd; color: #856404; padding: 10px; text-align: center; font-weight: bold; border: 1px solid #ffeeba;">
-        🚧 THIS IS A TEST ALERT SENT FOR TESTING THE ALERT SYSTEM 🚧
-      </div>
-     ` + html;
-  }
-  return html;
 }
 
 
@@ -542,53 +561,72 @@ async function sendEmail(cfg, subject, html) {
 }
 
 /* -------------------------------------------------------
-   Trigger Alert
+   Trigger Alert (state-aware)
 --------------------------------------------------------*/
 // 🧪 TEST MODE: Set to true to send all alerts to single test email
 const TEST_MODE = false;
 const TEST_EMAIL = process.env.TEST_EMAIL;
 
-async function triggerAlert(
+async function triggerAlert({
   rule,
   event,
   metricValue,
   avgHistoric,
   dropPercent,
-  alertHour
-) {
+  alertHour,
+  previousState,
+  newState
+}) {
+  const templateInfo = selectEmailTemplate(rule, previousState, newState);
+
   const emailHTML = generateEmailHTML(
     event,
     rule,
     metricValue,
     avgHistoric,
     dropPercent,
-    alertHour
+    alertHour,
+    templateInfo
   );
+
+  // Build subject line
+  const metricDisplayName = rule.metric_name.replace(/_/g, " ");
+  const subjectMetricName =
+    metricDisplayName.charAt(0).toUpperCase() + metricDisplayName.slice(1);
+  const dropVal =
+    dropPercent && !Number.isNaN(dropPercent)
+      ? Math.abs(dropPercent).toFixed(2)
+      : "0.00";
+  let dropLabel = "Drop";
+  if (["percentage_rise", "greater_than", "more_than"].includes(rule.threshold_type)) {
+    dropLabel = "Rise";
+  }
+  if (dropPercent && !Number.isNaN(dropPercent) && dropPercent !== 0) {
+    dropLabel = dropPercent < 0 ? "Rise" : "Drop";
+  }
+  const endHour = alertHour || 0;
+
+  // Build alert_history document
+  const historyDoc = {
+    alert_id: rule.id,
+    brand_id: rule.brand_id,
+    payload: event,
+    previous_state: previousState,
+    new_state: newState,
+    metric_value: metricValue,
+    historic_value: avgHistoric,
+    drop_percent: dropPercent,
+    triggered_at: new Date()
+  };
 
   // 🧪 TEST MODE: Override all channels to single test email
   if (TEST_MODE) {
-    const metricDisplayName = rule.metric_name.replace(/_/g, " ");
-    const subjectMetricName =
-      metricDisplayName.charAt(0).toUpperCase() + metricDisplayName.slice(1);
-    const dropVal =
-      dropPercent && !Number.isNaN(dropPercent)
-        ? Math.abs(dropPercent).toFixed(2)
-        : "0.00";
-    let dropLabel = "Drop";
-    if (["percentage_rise", "greater_than", "more_than"].includes(rule.threshold_type)) {
-      dropLabel = "Rise";
-    }
-
-    if (dropPercent && !Number.isNaN(dropPercent) && dropPercent !== 0) {
-      dropLabel = dropPercent < 0 ? "Rise" : "Drop";
-    }
-
-    const endHour = alertHour || 0;
-    const subject = `[TEST ALERT] ${subjectMetricName} Alert | ${dropVal}% ${dropLabel} | ${event.brand.toUpperCase()} | 0 - ${endHour} Hours`;
+    const subject = newState === "NORMAL"
+      ? `[TEST] ${subjectMetricName} Back to Normal | ${event.brand.toUpperCase()} | 0-${endHour}h`
+      : `[TEST] ${templateInfo.subjectTag} ${subjectMetricName} Alert | ${dropVal}% ${dropLabel} | ${event.brand.toUpperCase()} | 0-${endHour}h`;
 
     console.log(`🧪 TEST MODE: Sending to ${TEST_EMAIL} only`);
 
-    // Inject test banner into HTML
     const testHtml = `
       <div style="background-color: #fff3cd; color: #856404; padding: 10px; text-align: center; font-weight: bold; border: 1px solid #ffeeba; font-family: Arial, sans-serif; margin-bottom: 20px;">
         🚧 THIS IS A TEST ALERT SENT FOR TESTING THE ALERT SYSTEM 🚧
@@ -600,18 +638,14 @@ async function triggerAlert(
 
     try {
       const db = mongoClient.db();
-      await db.collection("alert_history").insertOne({
-        alert_id: rule.id,
-        brand_id: rule.brand_id,
-        payload: event,
-        triggered_at: new Date()
-      });
+      await db.collection("alert_history").insertOne(historyDoc);
     } catch (err) {
       console.error("🔥 Error saving test alert history to MongoDB:", err.message);
     }
     return;
   }
 
+  // Production mode: fetch channels
   let channels = [];
   if (rule.have_recipients === true || rule.have_recipients === 1) {
     [channels] = await pool.query(
@@ -631,41 +665,17 @@ async function triggerAlert(
     const cfg = parseChannelConfig(ch.channel_config);
     if (!cfg) continue;
 
-    const metricDisplayName = rule.metric_name.replace(/_/g, " ");
-    const subjectMetricName =
-      metricDisplayName.charAt(0).toUpperCase() + metricDisplayName.slice(1);
-
-    const dropVal =
-      dropPercent && !Number.isNaN(dropPercent)
-        ? Math.abs(dropPercent).toFixed(2)
-        : "0.00";
-
-    const endHour = alertHour || 0;
-
-    let dropLabel = "Drop";
-    if (["percentage_rise", "greater_than", "more_than"].includes(rule.threshold_type)) {
-      dropLabel = "Rise";
-    }
-
-    if (dropPercent && !Number.isNaN(dropPercent) && dropPercent !== 0) {
-      dropLabel = dropPercent < 0 ? "Rise" : "Drop";
-    }
-
-    const subject = `${subjectMetricName} Alert | ${dropVal}% ${dropLabel} | ${event.brand.toUpperCase()} | 0 - ${endHour} Hours`;
+    const subject = newState === "NORMAL"
+      ? `${subjectMetricName} Back to Normal | ${event.brand.toUpperCase()} | 0-${endHour}h`
+      : `${templateInfo.subjectTag} ${subjectMetricName} Alert | ${dropVal}% ${dropLabel} | ${event.brand.toUpperCase()} | 0-${endHour}h`;
 
     console.log(`   📧 Preparing to send email to: ${JSON.stringify(cfg.to)}`);
     await sendEmail(cfg, subject, emailHTML);
   }
 
-
   try {
     const db = mongoClient.db();
-    await db.collection("alert_history").insertOne({
-      alert_id: rule.id,
-      brand_id: rule.brand_id,
-      payload: event,
-      triggered_at: new Date()
-    });
+    await db.collection("alert_history").insertOne(historyDoc);
   } catch (err) {
     console.error("🔥 Error saving alert history to MongoDB:", err.message);
   }
@@ -709,8 +719,141 @@ async function evaluateThreshold(rule, metricValue, avgHistoric, dropPercent) {
 }
 
 /* -------------------------------------------------------
-   Main Controller
+   State Machine: Determine New State
 --------------------------------------------------------*/
+function determineNewState(rule, dropPercent, metricValue) {
+  const threshold = Number(rule.threshold_value);
+  const criticalThreshold = Number(rule.critical_threshold);
+  const hasCritical = !Number.isNaN(criticalThreshold) && criticalThreshold > 0;
+
+  // Helper: check if a given threshold value is breached
+  function isBreached(thresholdVal) {
+    if (rule.threshold_type === "percentage_drop") {
+      if (dropPercent == null || Number.isNaN(dropPercent)) return false;
+      return dropPercent >= thresholdVal;
+    }
+    if (rule.threshold_type === "percentage_rise") {
+      if (dropPercent == null || Number.isNaN(dropPercent)) return false;
+      return -dropPercent >= thresholdVal;
+    }
+    if (rule.threshold_type === "less_than") {
+      return metricValue < thresholdVal;
+    }
+    if (rule.threshold_type === "greater_than" || rule.threshold_type === "more_than") {
+      return metricValue > thresholdVal;
+    }
+    // Fallback (legacy absolute)
+    return metricValue < thresholdVal;
+  }
+
+  // Check critical first, then normal
+  if (hasCritical && isBreached(criticalThreshold)) {
+    return "CRITICAL";
+  }
+  if (isBreached(threshold)) {
+    return "TRIGGERED";
+  }
+  return "NORMAL";
+}
+
+/* -------------------------------------------------------
+   State Machine: Has State Changed (should fire?)
+--------------------------------------------------------*/
+function hasStateChanged(previousState, newState) {
+  // Same state → no alert
+  if (previousState === newState) return false;
+
+  // Allowed transitions that fire alerts
+  const allowedTransitions = {
+    "NORMAL": ["TRIGGERED", "CRITICAL"],
+    "TRIGGERED": ["CRITICAL", "NORMAL"],
+    "CRITICAL": ["NORMAL"]
+  };
+
+  const allowed = allowedTransitions[previousState] || [];
+  return allowed.includes(newState);
+}
+
+/* -------------------------------------------------------
+   State Machine: Select Email Template
+--------------------------------------------------------*/
+function selectEmailTemplate(rule, previousState, newState) {
+  const metricLabel = rule.metric_name.replace(/_/g, " ").toUpperCase();
+
+  // Recovery → green theme
+  if (newState === "NORMAL") {
+    let action = "Recovered";
+    if (rule.threshold_type === "percentage_drop") action = `${metricLabel} Recovered`;
+    else if (rule.threshold_type === "percentage_rise") action = `${metricLabel} Back to Normal`;
+    else if (rule.threshold_type === "less_than") action = `${metricLabel} Back Above Threshold`;
+    else if (rule.threshold_type === "greater_than" || rule.threshold_type === "more_than") action = `${metricLabel} Back Below Threshold`;
+
+    return {
+      subjectTag: "Recovered",
+      bodyHeading: `${action} — ${String(rule.name || metricLabel)}`,
+      bodySubtext: "The metric has returned to acceptable levels.",
+      headerColor: "#10b981",
+      emoji: "✅",
+      previousState,
+      newState
+    };
+  }
+
+  // CRITICAL → red theme
+  if (newState === "CRITICAL") {
+    let subjectTag = "Critical";
+    let action = "Critical Alert";
+    if (rule.threshold_type === "percentage_drop") { subjectTag = "Critically Low"; action = `Critical ${metricLabel} Drop`; }
+    else if (rule.threshold_type === "percentage_rise") { subjectTag = "Critically High"; action = `Critical ${metricLabel} Spike`; }
+    else if (rule.threshold_type === "less_than") { subjectTag = "Critically Low"; action = `${metricLabel} Critically Low`; }
+    else if (rule.threshold_type === "greater_than" || rule.threshold_type === "more_than") { subjectTag = "Critically High"; action = `${metricLabel} Critically High`; }
+
+    return {
+      subjectTag,
+      bodyHeading: `${action} — ${String(rule.name || metricLabel)}`,
+      bodySubtext: "This metric has breached the critical threshold and requires immediate attention.",
+      headerColor: "#dc2626",
+      emoji: "🚨",
+      previousState,
+      newState
+    };
+  }
+
+  // TRIGGERED → amber/indigo theme
+  let subjectTag = "Low";
+  let action = "Alert";
+  if (rule.threshold_type === "percentage_drop") { subjectTag = "Low"; action = `${metricLabel} Dropped`; }
+  else if (rule.threshold_type === "percentage_rise") { subjectTag = "High"; action = `${metricLabel} Increased`; }
+  else if (rule.threshold_type === "less_than") { subjectTag = "Low"; action = `${metricLabel} Fell Below Threshold`; }
+  else if (rule.threshold_type === "greater_than" || rule.threshold_type === "more_than") { subjectTag = "High"; action = `${metricLabel} Exceeded Threshold`; }
+
+  return {
+    subjectTag,
+    bodyHeading: `${action} — ${String(rule.name || metricLabel)}`,
+    bodySubtext: "One of your key activity signals moved more than usual.",
+    headerColor: "#4f46e5",
+    emoji: "⚠️",
+    previousState,
+    newState
+  };
+}
+
+/* -------------------------------------------------------
+   State Machine: Update Rule State in MongoDB
+--------------------------------------------------------*/
+async function updateRuleState(ruleId, newState) {
+  try {
+    const db = mongoClient.db();
+    await db.collection("alerts").updateOne(
+      { _id: ruleId },
+      { $set: { current_state: newState } }
+    );
+    console.log(`   💾 Rule state updated to: ${newState}`);
+  } catch (err) {
+    console.error("🔥 Error updating rule state in MongoDB:", err.message);
+  }
+}
+
 /* -------------------------------------------------------
    Main Controller
 --------------------------------------------------------*/
@@ -849,17 +992,21 @@ async function processIncomingEvent(event) {
       }
     }
 
-    // 1️⃣ Normal threshold check (must pass first)
-    const shouldTriggerNormal = await evaluateThreshold(rule, metricValue, avgHistoric, dropPercent);
+    // 1️⃣ Determine new state via state machine
+    const previousState = rule.current_state || "NORMAL";
+    const newState = determineNewState(rule, dropPercent, metricValue);
 
-    if (shouldTriggerNormal) {
-      console.log(`   ⚠️  Threshold Breached: YES`);
-    } else {
-      console.log(`   🆗 Threshold Breached: NO`);
+    console.log(`   🔄 State: ${previousState} → ${newState}`);
+
+    // 2️⃣ Check if state transition should fire an alert
+    if (!hasStateChanged(previousState, newState)) {
+      console.log(`   🔁 No actionable state change (${previousState} → ${newState}). Skipping.`);
       continue;
     }
 
-    // 2️⃣ Quiet hours + critical override
+    console.log(`   ⚠️  State Transition Detected: ${previousState} → ${newState}`);
+
+    // 3️⃣ Quiet hours: CRITICAL alerts bypass quiet hours
     if (rule.quiet_hours_start !== undefined && rule.quiet_hours_end !== undefined) {
       const qs = rule.quiet_hours_start;
       const qe = rule.quiet_hours_end;
@@ -868,30 +1015,28 @@ async function processIncomingEvent(event) {
         : currentISTHour >= qs || currentISTHour < qe;
 
       if (inQuiet) {
-        const crit = Number(rule.critical_threshold);
-        const isCritical = !Number.isNaN(crit) && crit > 0 && dropPercent >= crit;
-
-        if (isCritical) {
-          console.log(`   🌙 Quiet Hours (${qs}-${qe}) ACTIVE but CRITICAL override triggered!`);
+        if (newState === "CRITICAL") {
+          console.log(`   🌙 Quiet Hours (${qs}-${qe}) ACTIVE but CRITICAL override — allowing alert.`);
         } else {
-          console.log(`   💤 Quiet Hours (${qs}-${qe}) ACTIVE. Alert suppressed.`);
+          console.log(`   💤 Quiet Hours (${qs}-${qe}) ACTIVE. Alert suppressed (state NOT updated).`);
           continue;
         }
       }
     }
 
-    // 3️⃣ Cooldown check
+    // 4️⃣ Cooldown check (state NOT updated if blocked)
     const cooldown = await checkCooldown(rule.id, rule.cooldown_minutes);
     if (cooldown) {
-      console.log(`   ❄️  Cooldown ACTIVE (last triggered recently). Skipping.`);
+      console.log(`   ❄️  Cooldown ACTIVE (last triggered recently). Skipping (state NOT updated).`);
       continue;
     }
 
-    // 4️⃣ Fire
-    console.log(`   🚨 FIRE ALERT! Sending notification...`);
-    await triggerAlert(rule, event, metricValue, avgHistoric, dropPercent, hourCutoff);
+    // 5️⃣ Fire alert + update state
+    console.log(`   🚨 FIRE ALERT! [${previousState} → ${newState}] Sending notification...`);
+    await triggerAlert({ rule, event, metricValue, avgHistoric, dropPercent, alertHour: hourCutoff, previousState, newState });
+    await updateRuleState(rule._id, newState);
   }
   console.log(`\n══════════════════════════════════════════════════════════════════════════\n`);
 }
 
-module.exports = { processIncomingEvent, getAllRules, TEST_MODE, TEST_EMAIL };
+module.exports = { processIncomingEvent, getAllRules, TEST_MODE, TEST_EMAIL, determineNewState, hasStateChanged, selectEmailTemplate, updateRuleState };
