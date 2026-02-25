@@ -2,8 +2,9 @@ const pool = require("./db");
 const { evaluate } = require("mathjs");
 const nodemailer = require("nodemailer");
 const { MongoClient } = require("mongodb");
-let mongoClient = null;
+const crypto = require("crypto");
 
+let mongoClient = null;
 /* -------------------------------------------------------
    Historical Average Lookup (using lookback_days)
    - Sessions data: hourly_sessions_summary_shopify (Shopify)
@@ -561,6 +562,47 @@ async function sendEmail(cfg, subject, html) {
 }
 
 /* -------------------------------------------------------
+   Send Push Webhook
+--------------------------------------------------------*/
+async function sendPushWebhook(payload) {
+  try {
+    const destinationUrl = process.env.BACKEND_DESTINATION_URL;
+    const pushToken = process.env.PUSH_TOKEN;
+
+    if (!destinationUrl) {
+      console.error("❌ Push Webhook Error: BACKEND_DESTINATION_URL is not set.");
+      return;
+    }
+
+    const headers = {
+      "Content-Type": "application/json",
+      "X-PUSH-TOKEN": pushToken
+    };
+
+    if (!headers["X-PUSH-TOKEN"]) {
+      console.error("❌ Push Webhook Error: X-PUSH-TOKEN missing");
+      return;
+    }
+
+    const response = await fetch(destinationUrl, {
+      method: "POST",
+      headers: headers,
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      console.error(`❌ Push Webhook Error: ${response.status} ${response.statusText}`, text);
+      return;
+    }
+
+    console.log("🚀 Event successfully sent to Push API!");
+  } catch (err) {
+    console.error("❌ Push Webhook Network Error:", err.message);
+  }
+}
+
+/* -------------------------------------------------------
    Trigger Alert (state-aware)
 --------------------------------------------------------*/
 // 🧪 TEST MODE: Set to true to send all alerts to single test email
@@ -673,11 +715,79 @@ async function triggerAlert({
     await sendEmail(cfg, subject, emailHTML);
   }
 
+  // Build the webhook payload condition string
+  let conditionStr = "";
+  if (rule.threshold_type === "percentage_drop") {
+    conditionStr = `${rule.metric_name} dropped by ${rule.threshold_value}%`;
+  } else if (rule.threshold_type === "percentage_rise") {
+    conditionStr = `${rule.metric_name} rose by ${rule.threshold_value}%`;
+  } else if (rule.threshold_type === "less_than") {
+    conditionStr = `${rule.metric_name} < ${rule.threshold_value}`;
+  } else if (rule.threshold_type === "greater_than" || rule.threshold_type === "more_than") {
+    conditionStr = `${rule.metric_name} > ${rule.threshold_value}`;
+  } else {
+    conditionStr = `${rule.metric_name} = ${rule.threshold_value}`;
+  }
+
+  // Determine direction
+  let direction = "equal";
+  if (metricValue < rule.threshold_value) direction = "below";
+  else if (metricValue > rule.threshold_value) direction = "above";
+
+  // Build the event object
+  const pushEvent = {
+    event_id: crypto.randomUUID(),
+    event_type: "ALERT_TRIGGERED",
+    brand_id: rule.brand_id,
+    brand: event.brand || event.brand_key,
+    alert_id: rule.id,
+    metric: rule.metric_name,
+    condition: conditionStr,
+    current_value: Number(Number(metricValue).toFixed(2)),
+    threshold_value: Number(rule.threshold_value),
+    direction: direction,
+    severity: rule.severity || "medium",
+    current_state: newState
+  };
+
+  if (avgHistoric != null && !Number.isNaN(avgHistoric)) {
+    pushEvent.historical_avg = Number(Number(avgHistoric).toFixed(2));
+  }
+
+  if (dropPercent != null && !Number.isNaN(dropPercent)) {
+    pushEvent.delta_percent = Number(Number(dropPercent).toFixed(2));
+  }
+
+  const webhookPayload = {
+    event: pushEvent,
+    email_body: {
+      html: emailHTML
+    },
+    triggered_at: new Date().toISOString()
+  };
+
+  // 1) Send events to Push API
+  console.log(`   🚀 Preparing to send event to Push API`);
+  await sendPushWebhook(webhookPayload);
+
+  // 2) Log full event to push_notifications (excluding email_body) AND log history
   try {
     const db = mongoClient.db();
+
+    // Log history
     await db.collection("alert_history").insertOne(historyDoc);
+
+    // Log push notification
+    const pushNotificationDoc = {
+      event: pushEvent,
+      triggered_at: webhookPayload.triggered_at,
+      created_at: new Date()
+    };
+    await db.collection("push_notifications").insertOne(pushNotificationDoc);
+    console.log(`   💾 Push notification logged to MongoDB.`);
+
   } catch (err) {
-    console.error("🔥 Error saving alert history to MongoDB:", err.message);
+    console.error("🔥 Error saving to MongoDB:", err.message);
   }
 }
 
@@ -907,6 +1017,45 @@ async function processIncomingEvent(event) {
   console.log(`   Current IST Hour: ${currentISTHour}`);
   console.log(`   Active Rules: ${rules.length}`);
   console.log(`══════════════════════════════════════════════════════════════════════════`);
+
+  // Fetch current data from hour_wise_sales bypassing event values
+  try {
+    const dbNameForQuery = brandName.toUpperCase();
+    console.log(`   📊 Fetching current metrics from ${dbNameForQuery}.hour_wise_sales up to hour ${hourCutoff}`);
+
+    // Using CONVERT_TZ(NOW(), 'UTC', 'Asia/Kolkata') to match historical calculation
+    const [currentDataRows] = await pool.query(
+      `
+      SELECT 
+        SUM(total_sales) AS sf_total_sales,
+        SUM(number_of_orders) AS sf_total_orders,
+        SUM(number_of_prepaid_orders) AS sf_total_prepaid,
+        SUM(number_of_cod_orders) AS sf_total_cod,
+        SUM(number_of_sessions) AS sf_total_sessions,
+        SUM(number_of_atc_sessions) AS sf_total_atc
+      FROM ${dbNameForQuery}.hour_wise_sales
+      WHERE date = DATE(CONVERT_TZ(NOW(), 'UTC', 'Asia/Kolkata'))
+        AND hour < ?
+      `,
+      [hourCutoff]
+    );
+
+    const curr = currentDataRows[0] || {};
+
+    // Override event payload
+    event.total_sales = Number(curr.sf_total_sales) || 0;
+    event.total_orders = Number(curr.sf_total_orders) || 0;
+    event.total_sessions = Number(curr.sf_total_sessions) || 0;
+    event.total_atc_sessions = Number(curr.sf_total_atc) || 0;
+
+    // Calculate derived core metrics
+    event.aov = event.total_orders > 0 ? event.total_sales / event.total_orders : 0;
+    event.conversion_rate = event.total_sessions > 0 ? (event.total_orders / event.total_sessions) * 100 : 0;
+
+    console.log(`   📊 Overridden Event Metrics: Sales=${event.total_sales}, Orders=${event.total_orders}, Sessions=${event.total_sessions}, CVR=${event.conversion_rate.toFixed(2)}%`);
+  } catch (err) {
+    console.error(`   🔥 Error fetching current metrics from hour_wise_sales:`, err.message);
+  }
 
   for (const rule of rules) {
     console.log(`\n🔍 [RULE CHECK] "${rule.name}" (ID: ${rule.id})`);
