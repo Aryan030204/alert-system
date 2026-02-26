@@ -1096,8 +1096,8 @@ async function processIncomingEvent(event) {
       const nowIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
       const todayStr = nowIST.toISOString().split("T")[0];
 
-      // Default to threshold value as the prior baseline
-      avgHistoric = Number(rule.threshold_value);
+      // avgHistoric will now ONLY be used for display of "Prior Speed" in the email
+      avgHistoric = null;
 
       if (history.length > 0) {
         const lastIST = new Date(
@@ -1122,9 +1122,11 @@ async function processIncomingEvent(event) {
         }
       }
 
-      if (avgHistoric != null) {
-        dropPercent = ((avgHistoric - metricValue) / avgHistoric) * 100;
-        console.log(`   📉 Performance Check: Prior=${avgHistoric} Current=${metricValue} Drop=${dropPercent.toFixed(2)}%`);
+      // Calculate dropPercent relative to threshold as per user request
+      const threshold = Number(rule.threshold_value);
+      if (!Number.isNaN(threshold) && threshold !== 0) {
+        dropPercent = ((threshold - metricValue) / threshold) * 100;
+        console.log(`   📉 Performance Check: Threshold=${threshold} Current=${metricValue} Delta=${dropPercent.toFixed(2)}% | Prior=${avgHistoric}`);
       }
     } else {
       const lookbackDays = rule.lookback_days || 7;
