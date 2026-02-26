@@ -361,7 +361,7 @@ function generateEmailHTML(
   templateInfo
 ) {
   const brandName = String(event.brand || "").toUpperCase();
-  const metricLabel = rule.metric_name.replace(/_/g, " ").toUpperCase();
+  const metricLabel = rule.metric_name === "performance" ? "SPEED" : rule.metric_name.replace(/_/g, " ").toUpperCase();
 
   // Template-driven header styling
   const tpl = templateInfo || {};
@@ -421,7 +421,7 @@ function generateEmailHTML(
   if (hasAvg) {
     const historicalLabel =
       rule.metric_name === "performance"
-        ? "Prior Value"
+        ? "Prior Speed"
         : `Historical Avg (${rule.lookback_days} days)`;
     metricRows += `
       <tr>
@@ -632,7 +632,7 @@ async function triggerAlert({
   );
 
   // Build subject line
-  const metricDisplayName = rule.metric_name.replace(/_/g, " ");
+  const metricDisplayName = rule.metric_name === "performance" ? "speed" : rule.metric_name.replace(/_/g, " ");
   const subjectMetricName =
     metricDisplayName.charAt(0).toUpperCase() + metricDisplayName.slice(1);
   const dropVal =
@@ -888,7 +888,7 @@ function hasStateChanged(previousState, newState) {
    State Machine: Select Email Template
 --------------------------------------------------------*/
 function selectEmailTemplate(rule, previousState, newState) {
-  const metricLabel = rule.metric_name.replace(/_/g, " ").toUpperCase();
+  const metricLabel = rule.metric_name === "performance" ? "SPEED" : rule.metric_name.replace(/_/g, " ").toUpperCase();
 
   // Recovery → green theme
   if (newState === "NORMAL") {
