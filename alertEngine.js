@@ -14,14 +14,18 @@ async function getHistoricalAvgForMetric(
   brandId,
   metricName,
   hourCutoff,
-  lookbackDays
+  lookbackDays,
 ) {
   try {
     const days = Number(lookbackDays) > 0 ? Number(lookbackDays) : 7;
-    console.log(`\n📚 [HISTORICAL DATA] Looking up '${metricName}' for last ${days} days (Hour 0-${hourCutoff - 1})`);
+    console.log(
+      `\n📚 [HISTORICAL DATA] Looking up '${metricName}' for last ${days} days (Hour 0-${hourCutoff - 1})`,
+    );
 
     if (hourCutoff <= 0) {
-      console.log(`   ⏭  Skipped: hourCutoff <= 0 (not enough data for today)`);
+      console.log(
+        `   ⏭  Skipped: hourCutoff <= 0 (not enough data for today)`,
+      );
       return null;
     }
 
@@ -54,7 +58,7 @@ async function getHistoricalAvgForMetric(
           HAVING SUM(number_of_orders) > 0
         ) AS t;
         `,
-        [days, hourCutoff]
+        [days, hourCutoff],
       );
 
       const raw = avgRows[0]?.avg_val;
@@ -66,7 +70,9 @@ async function getHistoricalAvgForMetric(
       }
 
       const rounded = Number(Number(raw).toFixed(2));
-      console.log(`   ✅  Historical AOV: ${rounded} (avg of ${dayCount} days)`);
+      console.log(
+        `   ✅  Historical AOV: ${rounded} (avg of ${dayCount} days)`,
+      );
       return rounded;
     }
 
@@ -91,7 +97,7 @@ async function getHistoricalAvgForMetric(
           HAVING SUM(s.number_of_sessions) > 0
         ) AS t;
         `,
-        [days, hourCutoff]
+        [days, hourCutoff],
       );
 
       const raw = avgRows[0]?.avg_val;
@@ -103,7 +109,9 @@ async function getHistoricalAvgForMetric(
       }
 
       const rounded = Number(Number(raw).toFixed(4));
-      console.log(`   ✅  Historical CVR: ${rounded}% (avg of ${dayCount} days)`);
+      console.log(
+        `   ✅  Historical CVR: ${rounded}% (avg of ${dayCount} days)`,
+      );
       return rounded;
     }
 
@@ -131,7 +139,7 @@ async function getHistoricalAvgForMetric(
           GROUP BY date
         ) AS t;
         `,
-        [days, hourCutoff]
+        [days, hourCutoff],
       );
 
       const raw = avgRows[0]?.avg_val;
@@ -143,7 +151,9 @@ async function getHistoricalAvgForMetric(
       }
 
       const rounded = Number(Number(raw).toFixed(2));
-      console.log(`   ✅  Historical ${metricName}: ${rounded} (avg of ${dayCount} days)`);
+      console.log(
+        `   ✅  Historical ${metricName}: ${rounded} (avg of ${dayCount} days)`,
+      );
       return rounded;
     }
 
@@ -175,7 +185,7 @@ async function getHistoricalAvgForMetric(
         GROUP BY date
       ) AS t;
       `,
-      [days, hourCutoff]
+      [days, hourCutoff],
     );
 
     const raw = avgRows[0]?.avg_val;
@@ -187,10 +197,15 @@ async function getHistoricalAvgForMetric(
     }
 
     const rounded = Number(Number(raw).toFixed(2));
-    console.log(`   ✅  Historical ${metricName}: ${rounded} (avg of ${dayCount} days)`);
+    console.log(
+      `   ✅  Historical ${metricName}: ${rounded} (avg of ${dayCount} days)`,
+    );
     return rounded;
   } catch (err) {
-    console.error(`   🔥 Error in historical avg for ${metricName}:`, err.message);
+    console.error(
+      `   🔥 Error in historical avg for ${metricName}:`,
+      err.message,
+    );
     return null;
   }
 }
@@ -213,13 +228,16 @@ async function loadRulesForBrand(brandId) {
     const db = mongoClient.db();
 
     // Ensure brand_id is Number to match the document structure (e.g. brand_id: 4)
-    const rules = await db.collection("alerts").find({
-      brand_id: Number(brandId),
-      is_active: { $in: [1, true] }
-    }).toArray();
+    const rules = await db
+      .collection("alerts")
+      .find({
+        brand_id: Number(brandId),
+        is_active: { $in: [1, true] },
+      })
+      .toArray();
 
     // Map _id to id if id is missing
-    return rules.map(r => ({ ...r, id: r.id || r._id }));
+    return rules.map((r) => ({ ...r, id: r.id || r._id }));
   } catch (err) {
     console.error("🔥 Error loading rules from MongoDB:", err.message);
     return [];
@@ -290,7 +308,9 @@ async function computeMetric(rule, event) {
   } catch (err) {
     if (err.message.includes("Undefined symbol")) {
       const missing = err.message.split("symbol ")[1];
-      console.log(`ℹ Skipping rule ${rule.id}: metric '${missing}' not in event data`);
+      console.log(
+        `ℹ Skipping rule ${rule.id}: metric '${missing}' not in event data`,
+      );
     } else {
       console.error("❌ Metric computation error:", err.message);
     }
@@ -319,24 +339,24 @@ function normalizeEventKeys(event) {
 async function checkCooldown(alertId, cooldownMinutes) {
   try {
     const db = mongoClient.db();
-    const rows = await db.collection("alert_history")
+    const rows = await db
+      .collection("alert_history")
       .find({ alert_id: alertId })
       .sort({ triggered_at: -1 })
       .limit(1)
       .toArray();
-
 
     if (!rows.length) return false;
 
     // --- Convert triggered_at (UTC from DB) → IST ---
     const triggeredUTC = new Date(rows[0].triggered_at);
     const triggeredIST = new Date(
-      triggeredUTC.toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
+      triggeredUTC.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }),
     );
 
     // --- Convert NOW → IST ---
     const nowIST = new Date(
-      new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
+      new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }),
     );
 
     const minutes = (nowIST - triggeredIST) / 60000;
@@ -358,20 +378,28 @@ function generateEmailHTML(
   avgHistoric,
   dropPercent,
   alertHour,
-  templateInfo
+  templateInfo,
 ) {
   const brandName = String(event.brand || "").toUpperCase();
-  const metricLabel = rule.metric_name === "performance" ? "SPEED" : rule.metric_name.replace(/_/g, " ").toUpperCase();
+  const metricLabel =
+    rule.metric_name === "performance"
+      ? "SPEED"
+      : rule.metric_name === "conversion_rate"
+        ? "CVR"
+        : rule.metric_name.replace(/_/g, " ").toUpperCase();
 
   // Template-driven header styling
   const tpl = templateInfo || {};
   const headerColor = tpl.headerColor || "#4f46e5";
   const headerEmoji = tpl.emoji || "⚠️";
   const headerHeading = tpl.bodyHeading || `Insight alert for ${brandName}`;
-  const headerSubtext = tpl.bodySubtext || "One of your key activity signals moved more than usual.";
-  const stateTransition = tpl.previousState && tpl.newState
-    ? `${tpl.previousState} → ${tpl.newState}`
-    : null;
+  const headerSubtext =
+    tpl.bodySubtext ||
+    "One of your key activity signals moved more than usual.";
+  const stateTransition =
+    tpl.previousState && tpl.newState
+      ? `${tpl.previousState} → ${tpl.newState}`
+      : null;
 
   const hasAvg = typeof avgHistoric === "number" && !Number.isNaN(avgHistoric);
   const hasDrop = typeof dropPercent === "number" && !Number.isNaN(dropPercent);
@@ -448,8 +476,12 @@ function generateEmailHTML(
 
   // State transition row
   if (stateTransition) {
-    const stateBadgeColor = tpl.newState === "CRITICAL" ? "#dc2626"
-      : tpl.newState === "NORMAL" ? "#10b981" : "#f59e0b";
+    const stateBadgeColor =
+      tpl.newState === "CRITICAL"
+        ? "#dc2626"
+        : tpl.newState === "NORMAL"
+          ? "#10b981"
+          : "#f59e0b";
     metricRows += `
       <tr>
         <td style="padding:10px 0; color:#6b7280; font-size:15px;">State Transition</td>
@@ -494,17 +526,18 @@ function generateEmailHTML(
           <p style="margin:0; font-size:14px; color:#92400e;">
             <strong>Metric:</strong> ${metricLabel}<br>
             <strong>Threshold Type:</strong> ${rule.threshold_type.replace(
-    /_/g,
-    " "
-  )}<br>
+              /_/g,
+              " ",
+            )}<br>
             <strong>Severity:</strong> ${(rule.severity || "medium").toUpperCase()}
-            ${typeof alertHour === "number"
-      ? `<br><strong>Hour:</strong> ${alertHour} (data up to hour ${Math.max(
-        0,
-        alertHour
-      )}h)`
-      : ""
-    }
+            ${
+              typeof alertHour === "number"
+                ? `<br><strong>Hour:</strong> ${alertHour} (data up to hour ${Math.max(
+                    0,
+                    alertHour,
+                  )}h)`
+                : ""
+            }
           </p>
         </div>
 
@@ -528,7 +561,6 @@ function generateEmailHTML(
   `;
 }
 
-
 /* -------------------------------------------------------
    Send Email
 --------------------------------------------------------*/
@@ -548,8 +580,9 @@ async function sendEmail(cfg, subject, html) {
     });
 
     await transporter.sendMail({
-      from: `"Alerting System" <${cfg.smtp_user || process.env.ALERT_EMAIL_USER
-        }>`,
+      from: `"Alerting System" <${
+        cfg.smtp_user || process.env.ALERT_EMAIL_USER
+      }>`,
       to: cfg.to.join(","),
       subject,
       html,
@@ -570,13 +603,15 @@ async function sendPushWebhook(payload) {
     const pushToken = process.env.PUSH_TOKEN;
 
     if (!destinationUrl) {
-      console.error("❌ Push Webhook Error: BACKEND_DESTINATION_URL is not set.");
+      console.error(
+        "❌ Push Webhook Error: BACKEND_DESTINATION_URL is not set.",
+      );
       return;
     }
 
     const headers = {
       "Content-Type": "application/json",
-      "X-PUSH-TOKEN": pushToken
+      "X-PUSH-TOKEN": pushToken,
     };
 
     if (!headers["X-PUSH-TOKEN"]) {
@@ -587,12 +622,15 @@ async function sendPushWebhook(payload) {
     const response = await fetch(destinationUrl, {
       method: "POST",
       headers: headers,
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
       const text = await response.text();
-      console.error(`❌ Push Webhook Error: ${response.status} ${response.statusText}`, text);
+      console.error(
+        `❌ Push Webhook Error: ${response.status} ${response.statusText}`,
+        text,
+      );
       return;
     }
 
@@ -617,7 +655,7 @@ async function triggerAlert({
   dropPercent,
   alertHour,
   previousState,
-  newState
+  newState,
 }) {
   const templateInfo = selectEmailTemplate(rule, previousState, newState);
 
@@ -628,19 +666,30 @@ async function triggerAlert({
     avgHistoric,
     dropPercent,
     alertHour,
-    templateInfo
+    templateInfo,
   );
 
   // Build subject line
-  const metricDisplayName = rule.metric_name === "performance" ? "speed" : rule.metric_name.replace(/_/g, " ");
+  const metricDisplayName =
+    rule.metric_name === "performance"
+      ? "speed"
+      : rule.metric_name === "conversion_rate"
+        ? "CVR"
+        : rule.metric_name.replace(/_/g, " ");
   const subjectMetricName =
-    metricDisplayName.charAt(0).toUpperCase() + metricDisplayName.slice(1);
+    rule.metric_name === "conversion_rate"
+      ? "CVR"
+      : metricDisplayName.charAt(0).toUpperCase() + metricDisplayName.slice(1);
   const dropVal =
     dropPercent && !Number.isNaN(dropPercent)
       ? Math.abs(dropPercent).toFixed(2)
       : "0.00";
   let dropLabel = "Drop";
-  if (["percentage_rise", "greater_than", "more_than"].includes(rule.threshold_type)) {
+  if (
+    ["percentage_rise", "greater_than", "more_than"].includes(
+      rule.threshold_type,
+    )
+  ) {
     dropLabel = "Rise";
   }
   if (dropPercent && !Number.isNaN(dropPercent) && dropPercent !== 0) {
@@ -658,14 +707,15 @@ async function triggerAlert({
     metric_value: metricValue,
     historic_value: avgHistoric,
     drop_percent: dropPercent,
-    triggered_at: new Date()
+    triggered_at: new Date(),
   };
 
   // 🧪 TEST MODE: Override all channels to single test email
   if (TEST_MODE) {
-    const subject = newState === "NORMAL"
-      ? `[TEST] ${subjectMetricName} Back to Normal | ${event.brand.toUpperCase()} | 0-${endHour}h`
-      : `[TEST] ${templateInfo.subjectTag} ${subjectMetricName} Alert | ${dropVal}% ${dropLabel} | ${event.brand.toUpperCase()} | 0-${endHour}h`;
+    const subject =
+      newState === "NORMAL"
+        ? `[TEST] ${event.brand.toUpperCase()} | ${subjectMetricName} Back to Normal | 0-${endHour}h`
+        : `[TEST] ${event.brand.toUpperCase()} | ${templateInfo.subjectTag} ${subjectMetricName} Alert ${rule.metric_name === "performance" ? `| ${Number(metricValue).toFixed(2)} ` : ""}| ${dropVal}% ${dropLabel} | 0-${endHour}h`;
 
     console.log(`🧪 TEST MODE: Sending to ${TEST_EMAIL} only`);
 
@@ -682,7 +732,10 @@ async function triggerAlert({
       const db = mongoClient.db();
       await db.collection("alert_history").insertOne(historyDoc);
     } catch (err) {
-      console.error("🔥 Error saving test alert history to MongoDB:", err.message);
+      console.error(
+        "🔥 Error saving test alert history to MongoDB:",
+        err.message,
+      );
     }
     return;
   }
@@ -692,12 +745,12 @@ async function triggerAlert({
   if (rule.have_recipients === true || rule.have_recipients === 1) {
     [channels] = await pool.query(
       "SELECT * FROM alert_channels WHERE alert_id = ?",
-      [rule.id]
+      [rule.id],
     );
   } else {
     [channels] = await pool.query(
       "SELECT * FROM brands_alert_channel WHERE brand_id = ? AND is_active = 1",
-      [rule.brand_id]
+      [rule.brand_id],
     );
   }
 
@@ -707,9 +760,10 @@ async function triggerAlert({
     const cfg = parseChannelConfig(ch.channel_config);
     if (!cfg) continue;
 
-    const subject = newState === "NORMAL"
-      ? `${subjectMetricName} Back to Normal | ${event.brand.toUpperCase()} | 0-${endHour}h`
-      : `${templateInfo.subjectTag} ${subjectMetricName} Alert | ${dropVal}% ${dropLabel} | ${event.brand.toUpperCase()} | 0-${endHour}h`;
+    const subject =
+      newState === "NORMAL"
+        ? `${event.brand.toUpperCase()} | ${subjectMetricName} Back to Normal | 0-${endHour}h`
+        : `${event.brand.toUpperCase()} | ${templateInfo.subjectTag} ${subjectMetricName} Alert ${rule.metric_name === "performance" ? `| ${Number(metricValue).toFixed(2)} ` : ""}| ${dropVal}% ${dropLabel} | 0-${endHour}h`;
 
     console.log(`   📧 Preparing to send email to: ${JSON.stringify(cfg.to)}`);
     await sendEmail(cfg, subject, emailHTML);
@@ -723,7 +777,10 @@ async function triggerAlert({
     conditionStr = `${rule.metric_name} rose by ${rule.threshold_value}%`;
   } else if (rule.threshold_type === "less_than") {
     conditionStr = `${rule.metric_name} < ${rule.threshold_value}`;
-  } else if (rule.threshold_type === "greater_than" || rule.threshold_type === "more_than") {
+  } else if (
+    rule.threshold_type === "greater_than" ||
+    rule.threshold_type === "more_than"
+  ) {
     conditionStr = `${rule.metric_name} > ${rule.threshold_value}`;
   } else {
     conditionStr = `${rule.metric_name} = ${rule.threshold_value}`;
@@ -747,7 +804,7 @@ async function triggerAlert({
     threshold_value: Number(rule.threshold_value),
     direction: direction,
     severity: rule.severity || "medium",
-    current_state: newState
+    current_state: newState,
   };
 
   if (avgHistoric != null && !Number.isNaN(avgHistoric)) {
@@ -761,9 +818,9 @@ async function triggerAlert({
   const webhookPayload = {
     event: pushEvent,
     email_body: {
-      html: emailHTML
+      html: emailHTML,
     },
-    triggered_at: new Date().toISOString()
+    triggered_at: new Date().toISOString(),
   };
 
   // 1) Send events to Push API
@@ -781,11 +838,10 @@ async function triggerAlert({
     const pushNotificationDoc = {
       event: pushEvent,
       triggered_at: webhookPayload.triggered_at,
-      created_at: new Date()
+      created_at: new Date(),
     };
     await db.collection("push_notifications").insertOne(pushNotificationDoc);
     console.log(`   💾 Push notification logged to MongoDB.`);
-
   } catch (err) {
     console.error("🔥 Error saving to MongoDB:", err.message);
   }
@@ -821,7 +877,10 @@ async function evaluateThreshold(rule, metricValue, avgHistoric, dropPercent) {
     const isWorsening = avgHistoric == null || metricValue < avgHistoric;
     return isBelow && isWorsening;
   }
-  if (rule.threshold_type === "greater_than" || rule.threshold_type === "more_than") {
+  if (
+    rule.threshold_type === "greater_than" ||
+    rule.threshold_type === "more_than"
+  ) {
     return metricValue > threshold;
   }
   // Fallback for legacy 'absolute' type
@@ -849,7 +908,10 @@ function determineNewState(rule, dropPercent, metricValue) {
     if (rule.threshold_type === "less_than") {
       return metricValue < thresholdVal;
     }
-    if (rule.threshold_type === "greater_than" || rule.threshold_type === "more_than") {
+    if (
+      rule.threshold_type === "greater_than" ||
+      rule.threshold_type === "more_than"
+    ) {
       return metricValue > thresholdVal;
     }
     // Fallback (legacy absolute)
@@ -875,9 +937,9 @@ function hasStateChanged(previousState, newState) {
 
   // Allowed transitions that fire alerts
   const allowedTransitions = {
-    "NORMAL": ["TRIGGERED", "CRITICAL"],
-    "TRIGGERED": ["CRITICAL", "NORMAL"],
-    "CRITICAL": ["NORMAL"]
+    NORMAL: ["TRIGGERED", "CRITICAL"],
+    TRIGGERED: ["CRITICAL", "NORMAL"],
+    CRITICAL: ["NORMAL"],
   };
 
   const allowed = allowedTransitions[previousState] || [];
@@ -888,15 +950,27 @@ function hasStateChanged(previousState, newState) {
    State Machine: Select Email Template
 --------------------------------------------------------*/
 function selectEmailTemplate(rule, previousState, newState) {
-  const metricLabel = rule.metric_name === "performance" ? "SPEED" : rule.metric_name.replace(/_/g, " ").toUpperCase();
+  const metricLabel =
+    rule.metric_name === "performance"
+      ? "SPEED"
+      : rule.metric_name === "conversion_rate"
+        ? "CVR"
+        : rule.metric_name.replace(/_/g, " ").toUpperCase();
 
   // Recovery → green theme
   if (newState === "NORMAL") {
     let action = "Recovered";
-    if (rule.threshold_type === "percentage_drop") action = `${metricLabel} Recovered`;
-    else if (rule.threshold_type === "percentage_rise") action = `${metricLabel} Back to Normal`;
-    else if (rule.threshold_type === "less_than") action = `${metricLabel} Back Above Threshold`;
-    else if (rule.threshold_type === "greater_than" || rule.threshold_type === "more_than") action = `${metricLabel} Back Below Threshold`;
+    if (rule.threshold_type === "percentage_drop")
+      action = `${metricLabel} Recovered`;
+    else if (rule.threshold_type === "percentage_rise")
+      action = `${metricLabel} Back to Normal`;
+    else if (rule.threshold_type === "less_than")
+      action = `${metricLabel} Back Above Threshold`;
+    else if (
+      rule.threshold_type === "greater_than" ||
+      rule.threshold_type === "more_than"
+    )
+      action = `${metricLabel} Back Below Threshold`;
 
     return {
       subjectTag: "Recovered",
@@ -905,7 +979,7 @@ function selectEmailTemplate(rule, previousState, newState) {
       headerColor: "#10b981",
       emoji: "✅",
       previousState,
-      newState
+      newState,
     };
   }
 
@@ -913,29 +987,54 @@ function selectEmailTemplate(rule, previousState, newState) {
   if (newState === "CRITICAL") {
     let subjectTag = "Critical";
     let action = "Critical Alert";
-    if (rule.threshold_type === "percentage_drop") { subjectTag = "Critically Low"; action = `Critical ${metricLabel} Drop`; }
-    else if (rule.threshold_type === "percentage_rise") { subjectTag = "Critically High"; action = `Critical ${metricLabel} Spike`; }
-    else if (rule.threshold_type === "less_than") { subjectTag = "Critically Low"; action = `${metricLabel} Critically Low`; }
-    else if (rule.threshold_type === "greater_than" || rule.threshold_type === "more_than") { subjectTag = "Critically High"; action = `${metricLabel} Critically High`; }
+    if (rule.threshold_type === "percentage_drop") {
+      subjectTag = "Critically Low";
+      action = `Critical ${metricLabel} Drop`;
+    } else if (rule.threshold_type === "percentage_rise") {
+      subjectTag = "Critically High";
+      action = `Critical ${metricLabel} Spike`;
+    } else if (rule.threshold_type === "less_than") {
+      subjectTag = "Critically Low";
+      action = `${metricLabel} Critically Low`;
+    } else if (
+      rule.threshold_type === "greater_than" ||
+      rule.threshold_type === "more_than"
+    ) {
+      subjectTag = "Critically High";
+      action = `${metricLabel} Critically High`;
+    }
 
     return {
       subjectTag,
       bodyHeading: `${action} — ${String(rule.name || metricLabel)}`,
-      bodySubtext: "This metric has breached the critical threshold and requires immediate attention.",
+      bodySubtext:
+        "This metric has breached the critical threshold and requires immediate attention.",
       headerColor: "#dc2626",
       emoji: "🚨",
       previousState,
-      newState
+      newState,
     };
   }
 
   // TRIGGERED → amber/indigo theme
   let subjectTag = "Low";
   let action = "Alert";
-  if (rule.threshold_type === "percentage_drop") { subjectTag = "Low"; action = `${metricLabel} Dropped`; }
-  else if (rule.threshold_type === "percentage_rise") { subjectTag = "High"; action = `${metricLabel} Increased`; }
-  else if (rule.threshold_type === "less_than") { subjectTag = "Low"; action = `${metricLabel} Fell Below Threshold`; }
-  else if (rule.threshold_type === "greater_than" || rule.threshold_type === "more_than") { subjectTag = "High"; action = `${metricLabel} Exceeded Threshold`; }
+  if (rule.threshold_type === "percentage_drop") {
+    subjectTag = "Low";
+    action = `${metricLabel} Dropped`;
+  } else if (rule.threshold_type === "percentage_rise") {
+    subjectTag = "High";
+    action = `${metricLabel} Increased`;
+  } else if (rule.threshold_type === "less_than") {
+    subjectTag = "Low";
+    action = `${metricLabel} Fell Below Threshold`;
+  } else if (
+    rule.threshold_type === "greater_than" ||
+    rule.threshold_type === "more_than"
+  ) {
+    subjectTag = "High";
+    action = `${metricLabel} Exceeded Threshold`;
+  }
 
   return {
     subjectTag,
@@ -944,7 +1043,7 @@ function selectEmailTemplate(rule, previousState, newState) {
     headerColor: "#4f46e5",
     emoji: "⚠️",
     previousState,
-    newState
+    newState,
   };
 }
 
@@ -954,10 +1053,9 @@ function selectEmailTemplate(rule, previousState, newState) {
 async function updateRuleState(ruleId, newState) {
   try {
     const db = mongoClient.db();
-    await db.collection("alerts").updateOne(
-      { _id: ruleId },
-      { $set: { current_state: newState } }
-    );
+    await db
+      .collection("alerts")
+      .updateOne({ _id: ruleId }, { $set: { current_state: newState } });
     console.log(`   💾 Rule state updated to: ${newState}`);
   } catch (err) {
     console.error("🔥 Error updating rule state in MongoDB:", err.message);
@@ -975,10 +1073,9 @@ async function processIncomingEvent(event) {
 
   // Resolve brand_id from brand_key if missing
   if (!brandId && event.brand_key) {
-    const [brands] = await pool.query(
-      "SELECT id FROM brands WHERE name = ?",
-      [event.brand_key]
-    );
+    const [brands] = await pool.query("SELECT id FROM brands WHERE name = ?", [
+      event.brand_key,
+    ]);
     if (brands.length > 0) {
       brandId = brands[0].id;
       event.brand_id = brandId;
@@ -1003,7 +1100,7 @@ async function processIncomingEvent(event) {
       timeZone: "Asia/Kolkata",
       hour: "2-digit",
       hour12: false,
-    }).format(new Date())
+    }).format(new Date()),
   );
 
   const istHour = currentISTHour;
@@ -1012,16 +1109,24 @@ async function processIncomingEvent(event) {
       ? event.hour
       : istHour;
 
-  console.log(`\n\n══════════════════════════════════════════════════════════════════════════`);
-  console.log(`🚀 PROCESSING EVENT | Brand: ${brandName} (ID: ${brandId}) | Hour: ${hourCutoff}`);
+  console.log(
+    `\n\n══════════════════════════════════════════════════════════════════════════`,
+  );
+  console.log(
+    `🚀 PROCESSING EVENT | Brand: ${brandName} (ID: ${brandId}) | Hour: ${hourCutoff}`,
+  );
   console.log(`   Current IST Hour: ${currentISTHour}`);
   console.log(`   Active Rules: ${rules.length}`);
-  console.log(`══════════════════════════════════════════════════════════════════════════`);
+  console.log(
+    `══════════════════════════════════════════════════════════════════════════`,
+  );
 
   // Fetch current data from hour_wise_sales bypassing event values
   try {
     const dbNameForQuery = brandName.toUpperCase();
-    console.log(`   📊 Fetching current metrics from ${dbNameForQuery}.hour_wise_sales up to hour ${hourCutoff}`);
+    console.log(
+      `   📊 Fetching current metrics from ${dbNameForQuery}.hour_wise_sales up to hour ${hourCutoff}`,
+    );
 
     // Using CONVERT_TZ(NOW(), 'UTC', 'Asia/Kolkata') to match historical calculation
     const [currentDataRows] = await pool.query(
@@ -1037,7 +1142,7 @@ async function processIncomingEvent(event) {
       WHERE date = DATE(CONVERT_TZ(NOW(), 'UTC', 'Asia/Kolkata'))
         AND hour < ?
       `,
-      [hourCutoff]
+      [hourCutoff],
     );
 
     const curr = currentDataRows[0] || {};
@@ -1049,19 +1154,34 @@ async function processIncomingEvent(event) {
     event.total_atc_sessions = Number(curr.sf_total_atc) || 0;
 
     // Calculate derived core metrics
-    event.aov = event.total_orders > 0 ? event.total_sales / event.total_orders : 0;
-    event.conversion_rate = event.total_sessions > 0 ? (event.total_orders / event.total_sessions) * 100 : 0;
+    event.aov =
+      event.total_orders > 0 ? event.total_sales / event.total_orders : 0;
+    event.conversion_rate =
+      event.total_sessions > 0
+        ? (event.total_orders / event.total_sessions) * 100
+        : 0;
 
-    console.log(`   📊 Overridden Event Metrics: Sales=${event.total_sales}, Orders=${event.total_orders}, Sessions=${event.total_sessions}, CVR=${event.conversion_rate.toFixed(2)}%`);
+    console.log(
+      `   📊 Overridden Event Metrics: Sales=${event.total_sales}, Orders=${event.total_orders}, Sessions=${event.total_sessions}, CVR=${event.conversion_rate.toFixed(2)}%`,
+    );
   } catch (err) {
-    console.error(`   🔥 Error fetching current metrics from hour_wise_sales:`, err.message);
+    console.error(
+      `   🔥 Error fetching current metrics from hour_wise_sales:`,
+      err.message,
+    );
   }
 
   for (const rule of rules) {
     console.log(`\n🔍 [RULE CHECK] "${rule.name}" (ID: ${rule.id})`);
-    console.log(`   📌 Type: ${rule.metric_type} | Metric: ${rule.metric_name}`);
-    console.log(`   📌 Threshold: ${rule.threshold_type} ${rule.threshold_value}%`);
-    console.log(`   📌 Lookback: ${rule.lookback_days || 7} days | Cooldown: ${rule.cooldown_minutes}m`);
+    console.log(
+      `   📌 Type: ${rule.metric_type} | Metric: ${rule.metric_name}`,
+    );
+    console.log(
+      `   📌 Threshold: ${rule.threshold_type} ${rule.threshold_value}%`,
+    );
+    console.log(
+      `   📌 Lookback: ${rule.lookback_days || 7} days | Cooldown: ${rule.cooldown_minutes}m`,
+    );
 
     const metricValue = await computeMetric(rule, event);
 
@@ -1075,7 +1195,11 @@ async function processIncomingEvent(event) {
     let avgHistoric = null;
     let dropPercent = null;
 
-    const isAbsoluteCondition = ["less_than", "greater_than", "absolute"].includes(rule.threshold_type);
+    const isAbsoluteCondition = [
+      "less_than",
+      "greater_than",
+      "absolute",
+    ].includes(rule.threshold_type);
 
     // always calculate historical data for context
     if (rule.metric_name === "performance") {
@@ -1083,7 +1207,8 @@ async function processIncomingEvent(event) {
       let history = [];
       try {
         const db = mongoClient.db();
-        history = await db.collection("alert_history")
+        history = await db
+          .collection("alert_history")
           .find({ alert_id: rule.id })
           .sort({ triggered_at: -1 })
           .limit(1)
@@ -1093,7 +1218,9 @@ async function processIncomingEvent(event) {
       }
 
       // Get Today in IST
-      const nowIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+      const nowIST = new Date(
+        new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }),
+      );
       const todayStr = nowIST.toISOString().split("T")[0];
 
       // avgHistoric will now ONLY be used for display of "Prior Speed" in the email
@@ -1103,7 +1230,7 @@ async function processIncomingEvent(event) {
         const lastIST = new Date(
           new Date(history[0].triggered_at).toLocaleString("en-US", {
             timeZone: "Asia/Kolkata",
-          })
+          }),
         );
         const lastDateStr = lastIST.toISOString().split("T")[0];
 
@@ -1126,20 +1253,33 @@ async function processIncomingEvent(event) {
       const threshold = Number(rule.threshold_value);
       if (!Number.isNaN(threshold) && threshold !== 0) {
         dropPercent = ((threshold - metricValue) / threshold) * 100;
-        console.log(`   📉 Performance Check: Threshold=${threshold} Current=${metricValue} Delta=${dropPercent.toFixed(2)}% | Prior=${avgHistoric}`);
+        console.log(
+          `   📉 Performance Check: Threshold=${threshold} Current=${metricValue} Delta=${dropPercent.toFixed(2)}% | Prior=${avgHistoric}`,
+        );
       }
     } else {
       const lookbackDays = rule.lookback_days || 7;
 
-      avgHistoric = await getHistoricalAvgForMetric(brandId, rule.metric_name, hourCutoff, rule.lookback_days);
+      avgHistoric = await getHistoricalAvgForMetric(
+        brandId,
+        rule.metric_name,
+        hourCutoff,
+        rule.lookback_days,
+      );
 
       if (avgHistoric != null && avgHistoric > 0) {
         dropPercent = ((avgHistoric - metricValue) / avgHistoric) * 100;
         const direction = dropPercent > 0 ? "DROP 🔻" : "RISE 🔺";
-        console.log(`   📉 Comparison: Historic=${avgHistoric} vs Current=${metricValue}`);
-        console.log(`   📉 Result: ${Math.abs(dropPercent).toFixed(2)}% ${direction}`);
+        console.log(
+          `   📉 Comparison: Historic=${avgHistoric} vs Current=${metricValue}`,
+        );
+        console.log(
+          `   📉 Result: ${Math.abs(dropPercent).toFixed(2)}% ${direction}`,
+        );
       } else {
-        console.log(`   ⚠️ No historical avg - cannot calculate drop percentage`);
+        console.log(
+          `   ⚠️ No historical avg - cannot calculate drop percentage`,
+        );
       }
     }
 
@@ -1151,25 +1291,37 @@ async function processIncomingEvent(event) {
 
     // 2️⃣ Check if state transition should fire an alert
     if (!hasStateChanged(previousState, newState)) {
-      console.log(`   🔁 No actionable state change (${previousState} → ${newState}). Skipping.`);
+      console.log(
+        `   🔁 No actionable state change (${previousState} → ${newState}). Skipping.`,
+      );
       continue;
     }
 
-    console.log(`   ⚠️  State Transition Detected: ${previousState} → ${newState}`);
+    console.log(
+      `   ⚠️  State Transition Detected: ${previousState} → ${newState}`,
+    );
 
     // 3️⃣ Quiet hours: CRITICAL alerts bypass quiet hours
-    if (rule.quiet_hours_start !== undefined && rule.quiet_hours_end !== undefined) {
+    if (
+      rule.quiet_hours_start !== undefined &&
+      rule.quiet_hours_end !== undefined
+    ) {
       const qs = rule.quiet_hours_start;
       const qe = rule.quiet_hours_end;
-      const inQuiet = qs < qe
-        ? currentISTHour >= qs && currentISTHour < qe
-        : currentISTHour >= qs || currentISTHour < qe;
+      const inQuiet =
+        qs < qe
+          ? currentISTHour >= qs && currentISTHour < qe
+          : currentISTHour >= qs || currentISTHour < qe;
 
       if (inQuiet) {
         if (newState === "CRITICAL") {
-          console.log(`   🌙 Quiet Hours (${qs}-${qe}) ACTIVE but CRITICAL override — allowing alert.`);
+          console.log(
+            `   🌙 Quiet Hours (${qs}-${qe}) ACTIVE but CRITICAL override — allowing alert.`,
+          );
         } else {
-          console.log(`   💤 Quiet Hours (${qs}-${qe}) ACTIVE. Alert suppressed (state NOT updated).`);
+          console.log(
+            `   💤 Quiet Hours (${qs}-${qe}) ACTIVE. Alert suppressed (state NOT updated).`,
+          );
           continue;
         }
       }
@@ -1178,21 +1330,47 @@ async function processIncomingEvent(event) {
     // 4️⃣ Cooldown check (state NOT updated if blocked)
     // EXCEPTION: If transitioning NORMAL -> CRITICAL, bypass cooldown
     if (previousState === "NORMAL" && newState === "CRITICAL") {
-      console.log(`   🔥 CRITICAL transition (NORMAL -> CRITICAL) - Bypassing Cooldown.`);
+      console.log(
+        `   🔥 CRITICAL transition (NORMAL -> CRITICAL) - Bypassing Cooldown.`,
+      );
     } else {
       const cooldown = await checkCooldown(rule.id, rule.cooldown_minutes);
       if (cooldown) {
-        console.log(`   ❄️  Cooldown ACTIVE (last triggered recently). Skipping (state NOT updated).`);
+        console.log(
+          `   ❄️  Cooldown ACTIVE (last triggered recently). Skipping (state NOT updated).`,
+        );
         continue;
       }
     }
 
     // 5️⃣ Fire alert + update state
-    console.log(`   🚨 FIRE ALERT! [${previousState} → ${newState}] Sending notification...`);
-    await triggerAlert({ rule, event, metricValue, avgHistoric, dropPercent, alertHour: hourCutoff, previousState, newState });
+    console.log(
+      `   🚨 FIRE ALERT! [${previousState} → ${newState}] Sending notification...`,
+    );
+    await triggerAlert({
+      rule,
+      event,
+      metricValue,
+      avgHistoric,
+      dropPercent,
+      alertHour: hourCutoff,
+      previousState,
+      newState,
+    });
     await updateRuleState(rule._id, newState);
   }
-  console.log(`\n══════════════════════════════════════════════════════════════════════════\n`);
+  console.log(
+    `\n══════════════════════════════════════════════════════════════════════════\n`,
+  );
 }
 
-module.exports = { processIncomingEvent, getAllRules, TEST_MODE, TEST_EMAIL, determineNewState, hasStateChanged, selectEmailTemplate, updateRuleState };
+module.exports = {
+  processIncomingEvent,
+  getAllRules,
+  TEST_MODE,
+  TEST_EMAIL,
+  determineNewState,
+  hasStateChanged,
+  selectEmailTemplate,
+  updateRuleState,
+};
