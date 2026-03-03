@@ -334,6 +334,104 @@ function normalizeEventKeys(event) {
 }
 
 /* -------------------------------------------------------
+   Confidence Calculation
+   Scales thresholds based on sample size stability.
+   Low volume → low confidence → wider effective threshold.
+--------------------------------------------------------*/
+function calculateConfidence(rule, event) {
+  const clamp = (x) => Math.max(0.1, Math.min(x, 1.0));
+
+  const sessions = Number(event.total_sessions) || 0;
+  const orders = Number(event.total_orders) || 0;
+
+  console.log(
+    `   📐 [CONFIDENCE] Metric: ${rule.metric_name} | Sessions: ${sessions} | Orders: ${orders}`,
+  );
+
+  let confidence = 1.0;
+
+  switch (rule.metric_name) {
+    case "conversion_rate": {
+      const confSessions = sessions / 300;
+      const confOrders = orders / 20;
+      confidence = clamp(Math.min(confSessions, confOrders));
+      console.log(
+        `   📐 [CONFIDENCE] CVR components: sessions/300 = ${confSessions.toFixed(4)} | orders/20 = ${confOrders.toFixed(4)} | min = ${Math.min(confSessions, confOrders).toFixed(4)} → clamped = ${confidence.toFixed(2)}`,
+      );
+      break;
+    }
+    case "total_orders":
+      confidence = clamp(orders / 30);
+      console.log(
+        `   📐 [CONFIDENCE] orders/30 = ${(orders / 30).toFixed(4)} → clamped = ${confidence.toFixed(2)}`,
+      );
+      break;
+    case "total_sales":
+      confidence = clamp(orders / 40);
+      console.log(
+        `   📐 [CONFIDENCE] orders/40 = ${(orders / 40).toFixed(4)} → clamped = ${confidence.toFixed(2)}`,
+      );
+      break;
+    case "total_sessions":
+      confidence = clamp(sessions / 500);
+      console.log(
+        `   📐 [CONFIDENCE] sessions/500 = ${(sessions / 500).toFixed(4)} → clamped = ${confidence.toFixed(2)}`,
+      );
+      break;
+    case "aov":
+      confidence = clamp(orders / 40);
+      console.log(
+        `   📐 [CONFIDENCE] orders/40 = ${(orders / 40).toFixed(4)} → clamped = ${confidence.toFixed(2)}`,
+      );
+      break;
+    default:
+      console.log(
+        `   📐 [CONFIDENCE] Unknown metric "${rule.metric_name}" — defaulting to 1.0 (no scaling)`,
+      );
+      break;
+  }
+
+  return confidence;
+}
+
+/* -------------------------------------------------------
+   Minimum Volume Gate
+   Returns true if all minimum volume conditions are met,
+   or if no minimum_volume is configured.
+--------------------------------------------------------*/
+function checkMinimumVolume(rule, event) {
+  if (!rule.minimum_volume || typeof rule.minimum_volume !== "object") {
+    console.log(`   📦 [VOLUME GATE] No minimum_volume configured — gate open`);
+    return true;
+  }
+
+  const entries = Object.entries(rule.minimum_volume);
+  if (entries.length === 0) {
+    console.log(`   📦 [VOLUME GATE] minimum_volume is empty — gate open`);
+    return true;
+  }
+
+  console.log(
+    `   📦 [VOLUME GATE] Checking ${entries.length} volume condition(s):`,
+  );
+
+  for (const [key, minVal] of entries) {
+    const actual = Number(event[key]) || 0;
+    const passed = actual >= minVal;
+    console.log(
+      `   📦 [VOLUME GATE]   ${key}: ${actual} ${passed ? ">=" : "<"} ${minVal} → ${passed ? "PASS ✅" : "FAIL ❌"}`,
+    );
+    if (!passed) {
+      console.log(`   📦 [VOLUME GATE] Result: BLOCKED — ${key} below minimum`);
+      return false;
+    }
+  }
+
+  console.log(`   📦 [VOLUME GATE] Result: PASSED — all minimums met`);
+  return true;
+}
+
+/* -------------------------------------------------------
    Cooldown
 --------------------------------------------------------*/
 async function checkCooldown(alertId, cooldownMinutes) {
@@ -644,7 +742,7 @@ async function sendPushWebhook(payload) {
    Trigger Alert (state-aware)
 --------------------------------------------------------*/
 // 🧪 TEST MODE: Set to true to send all alerts to single test email
-const TEST_MODE = false;
+const TEST_MODE = true;
 const TEST_EMAIL = process.env.TEST_EMAIL;
 
 async function triggerAlert({
@@ -890,10 +988,33 @@ async function evaluateThreshold(rule, metricValue, avgHistoric, dropPercent) {
 /* -------------------------------------------------------
    State Machine: Determine New State
 --------------------------------------------------------*/
-function determineNewState(rule, dropPercent, metricValue) {
+function determineNewState(rule, dropPercent, metricValue, event) {
   const threshold = Number(rule.threshold_value);
   const criticalThreshold = Number(rule.critical_threshold);
   const hasCritical = !Number.isNaN(criticalThreshold) && criticalThreshold > 0;
+
+  // Confidence-based scaling (only for percentage-based thresholds)
+  const isPercentBased =
+    rule.threshold_type === "percentage_drop" ||
+    rule.threshold_type === "percentage_rise";
+
+  let effectiveThreshold = threshold;
+  let effectiveCritical = criticalThreshold;
+
+  if (isPercentBased && event) {
+    const confidence = calculateConfidence(rule, event);
+    effectiveThreshold = threshold / confidence;
+    effectiveCritical = hasCritical
+      ? criticalThreshold / confidence
+      : criticalThreshold;
+    console.log(
+      `   🎯 Confidence: ${confidence.toFixed(2)} | Effective Threshold: ${effectiveThreshold.toFixed(2)}% (raw: ${threshold}%)${
+        hasCritical
+          ? ` | Effective Critical: ${effectiveCritical.toFixed(2)}% (raw: ${criticalThreshold}%)`
+          : ""
+      }`,
+    );
+  }
 
   // Helper: check if a given threshold value is breached
   function isBreached(thresholdVal) {
@@ -918,11 +1039,11 @@ function determineNewState(rule, dropPercent, metricValue) {
     return metricValue < thresholdVal;
   }
 
-  // Check critical first, then normal
-  if (hasCritical && isBreached(criticalThreshold)) {
+  // Check critical first, then normal (using effective thresholds)
+  if (hasCritical && isBreached(effectiveCritical)) {
     return "CRITICAL";
   }
-  if (isBreached(threshold)) {
+  if (isBreached(effectiveThreshold)) {
     return "TRIGGERED";
   }
   return "NORMAL";
@@ -1283,9 +1404,23 @@ async function processIncomingEvent(event) {
       }
     }
 
+    // Log volume context before state determination
+    console.log(
+      `   📦 Volume Context: Sessions=${Number(event.total_sessions) || 0} | Orders=${Number(event.total_orders) || 0} | Sales=${Number(event.total_sales) || 0}`,
+    );
+    if (
+      rule.minimum_volume &&
+      typeof rule.minimum_volume === "object" &&
+      Object.keys(rule.minimum_volume).length > 0
+    ) {
+      console.log(
+        `   📦 Minimum Volume Config: ${JSON.stringify(rule.minimum_volume)}`,
+      );
+    }
+
     // 1️⃣ Determine new state via state machine
     const previousState = rule.current_state || "NORMAL";
-    const newState = determineNewState(rule, dropPercent, metricValue);
+    const newState = determineNewState(rule, dropPercent, metricValue, event);
 
     console.log(`   🔄 State: ${previousState} → ${newState}`);
 
@@ -1314,6 +1449,30 @@ async function processIncomingEvent(event) {
           : currentISTHour >= qs || currentISTHour < qe;
 
       if (inQuiet) {
+        console.log(
+          `   🌙 [QUIET HOURS] Currently in quiet window (${qs}:00-${qe}:00 IST, current: ${currentISTHour}:00)`,
+        );
+
+        // Minimum volume gate during quiet hours
+        if (
+          rule.minimum_volume &&
+          Object.keys(rule.minimum_volume).length > 0
+        ) {
+          console.log(
+            `   🌙 [QUIET HOURS] Running minimum volume gate check...`,
+          );
+          const volumeOk = checkMinimumVolume(rule, event);
+          if (!volumeOk) {
+            console.log(
+              `   🌙 [QUIET HOURS] Minimum volume NOT met. Alert suppressed (state NOT updated).`,
+            );
+            continue;
+          }
+          console.log(
+            `   🌙 [QUIET HOURS] Volume gate passed — proceeding with alert evaluation.`,
+          );
+        }
+
         if (newState === "CRITICAL") {
           console.log(
             `   🌙 Quiet Hours (${qs}-${qe}) ACTIVE but CRITICAL override — allowing alert.`,
