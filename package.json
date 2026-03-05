@@ -6,7 +6,9 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "nodemon server.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "backfill:trigger-mode": "node scripts/backfill-trigger-mode.js",
+    "test:publish-alert-fired": "node scripts/publish-test-alert-fired.js"
   },
   "keywords": [],
   "author": "",
@@ -14,6 +16,7 @@
   "type": "commonjs",
   "dependencies": {
     "@upstash/qstash": "^2.8.0",
+    "amqplib": "^0.10.9",
     "axios": "^1.13.2",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",

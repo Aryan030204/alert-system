@@ -2,9 +2,108 @@ const pool = require("./db");
 const { evaluate } = require("mathjs");
 const nodemailer = require("nodemailer");
 const { MongoClient } = require("mongodb");
-const crypto = require("crypto");
-
+const { normalizeAlertFiredEvent } = require("./utils/alertFiredEventNormalizer");
+const { rabbitmqPublisher } = require("./utils/rabbitmqPublisher");
 let mongoClient = null;
+
+const ALERT_DISPATCH_TARGETS = {
+  ALERT_SYSTEM: "alert_system",
+  DSL_ENGINE: "dsl_engine",
+};
+
+function resolveAlertDispatchTarget(rule) {
+  // Explicit ownership flag from Mongo alert doc:
+  // if true, DSL engine owns delivery (email/steps), so this service must only emit alert.fired.
+  if (rule?.is_dsl_engine_alert === true || rule?.is_dsl_engine_alert === 1) {
+    return ALERT_DISPATCH_TARGETS.DSL_ENGINE;
+  }
+
+  const raw = String(
+    rule?.trigger_mode ??
+      rule?.dispatch_mode ??
+      rule?.execution_mode ??
+      ALERT_DISPATCH_TARGETS.ALERT_SYSTEM
+  )
+    .trim()
+    .toLowerCase();
+
+  if (raw === ALERT_DISPATCH_TARGETS.DSL_ENGINE || raw === "dsl") {
+    return ALERT_DISPATCH_TARGETS.DSL_ENGINE;
+  }
+
+  if (raw !== ALERT_DISPATCH_TARGETS.ALERT_SYSTEM) {
+    console.warn(
+      `   ⚠️ Unknown trigger_mode='${raw}' for alert ${rule?.id}. Defaulting to '${ALERT_DISPATCH_TARGETS.ALERT_SYSTEM}'.`
+    );
+  }
+
+  return ALERT_DISPATCH_TARGETS.ALERT_SYSTEM;
+}
+
+async function publishDslTriggerEvent({
+  rule,
+  event,
+  metricValue,
+  avgHistoric,
+  dropPercent,
+  alertHour,
+  previousState,
+  newState,
+}) {
+  const firedAt = new Date();
+  let alertFiredEvent;
+
+  try {
+    alertFiredEvent = normalizeAlertFiredEvent({
+      rule,
+      event,
+      metricValue,
+      avgHistoric,
+      dropPercent,
+      alertHour,
+      previousState,
+      newState,
+      firedAt,
+      evaluationWindowEnd:
+        event.window?.end ||
+        event.window_end ||
+        event.windowEnd ||
+        (event.date
+          ? `${event.date}T${event.time || `${String(alertHour).padStart(2, "0")}:00:00`}`
+          : undefined),
+    });
+
+    await rabbitmqPublisher.publishAlertFiredEvent(alertFiredEvent);
+    console.log(
+      `   📣 Published alert.fired for DSL (tenant=${alertFiredEvent.tenantId}, idempotencyKey=${alertFiredEvent.idempotencyKey})`
+    );
+  } catch (err) {
+    const ctx = alertFiredEvent
+      ? {
+          alertId: alertFiredEvent.alertId,
+          brandId: alertFiredEvent.brandId,
+          tenantId: alertFiredEvent.tenantId,
+          eventType: alertFiredEvent.eventType,
+          idempotencyKey: alertFiredEvent.idempotencyKey,
+        }
+      : {
+          alertId: Number(rule.id ?? rule.alert_id),
+          brandId: Number(rule.brand_id ?? event.brand_id),
+          tenantId: undefined,
+          eventType: "alert.fired",
+          idempotencyKey: undefined,
+        };
+
+    console.error("🔥 Failed to publish alert.fired event", {
+      ...ctx,
+      error: err.message,
+    });
+
+    // Fail this processing unit so upstream retries can replay and keep idempotent semantics.
+    throw err;
+  }
+}
+
 /* -------------------------------------------------------
    Historical Average Lookup (using lookback_days)
    - Sessions data: hourly_sessions_summary_shopify (Shopify)
@@ -1502,20 +1601,40 @@ async function processIncomingEvent(event) {
       }
     }
 
-    // 5️⃣ Fire alert + update state
-    console.log(
-      `   🚨 FIRE ALERT! [${previousState} → ${newState}] Sending notification...`,
-    );
-    await triggerAlert({
-      rule,
-      event,
-      metricValue,
-      avgHistoric,
-      dropPercent,
-      alertHour: hourCutoff,
-      previousState,
-      newState,
-    });
+    const dispatchTarget = resolveAlertDispatchTarget(rule);
+    console.log(`   🎯 Dispatch target: ${dispatchTarget}`);
+
+    // 5️⃣ Dispatch action + update state
+    if (dispatchTarget === ALERT_DISPATCH_TARGETS.DSL_ENGINE) {
+      if (newState !== "NORMAL") {
+        console.log(`   🚨 FIRE ALERT! [${previousState} → ${newState}] Publishing DSL trigger event...`);
+        await publishDslTriggerEvent({
+          rule,
+          event,
+          metricValue,
+          avgHistoric,
+          dropPercent,
+          alertHour: hourCutoff,
+          previousState,
+          newState,
+        });
+      } else {
+        console.log(`   ✅ Recovery transition (${previousState} → ${newState}) for DSL mode. No alert.fired emitted.`);
+      }
+    } else {
+      console.log(`   🚨 FIRE ALERT! [${previousState} → ${newState}] Sending notification...`);
+      await triggerAlert({
+        rule,
+        event,
+        metricValue,
+        avgHistoric,
+        dropPercent,
+        alertHour: hourCutoff,
+        previousState,
+        newState,
+      });
+    }
+
     await updateRuleState(rule._id, newState);
   }
   console.log(
