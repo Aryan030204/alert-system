@@ -11,6 +11,18 @@ const ALERT_DISPATCH_TARGETS = {
   DSL_ENGINE: "dsl_engine",
 };
 
+const ESCALATION_STEP = Number(process.env.ESCALATION_STEP);
+const EFFECTIVE_ESCALATION_STEP =
+  Number.isFinite(ESCALATION_STEP) && ESCALATION_STEP > 0
+    ? ESCALATION_STEP
+    : null;
+
+if (EFFECTIVE_ESCALATION_STEP != null) {
+  console.log(`   ⚡ Escalation enabled: step=${EFFECTIVE_ESCALATION_STEP}%`);
+} else {
+  console.log("   ⚡ Escalation disabled: set ESCALATION_STEP to a positive number");
+}
+
 function resolveAlertDispatchTarget(rule) {
   // Explicit ownership flag from Mongo alert doc:
   // if true, DSL engine owns delivery (email/steps), so this service must only emit alert.fired.
@@ -565,6 +577,99 @@ async function checkCooldown(alertId, cooldownMinutes) {
   }
 }
 
+function getCurrentDeviation(rule, dropPercent) {
+  if (dropPercent == null || Number.isNaN(dropPercent)) return null;
+
+  if (rule.threshold_type === "percentage_drop") {
+    return dropPercent;
+  }
+
+  if (rule.threshold_type === "percentage_rise") {
+    return -dropPercent;
+  }
+
+  return null;
+}
+
+async function getLastAlertForState(alertId, state) {
+  try {
+    const db = mongoClient.db();
+    const rows = await db
+      .collection("alert_history")
+      .find({ alert_id: alertId, new_state: state })
+      .sort({ triggered_at: -1 })
+      .limit(1)
+      .toArray();
+
+    return rows[0] || null;
+  } catch (err) {
+    console.error("🔥 Error fetching last state alert history:", err.message);
+    return null;
+  }
+}
+
+async function evaluateEscalation(rule, previousState, newState, dropPercent) {
+  const escalationOff = {
+    shouldTrigger: false,
+    reason: "disabled_or_not_eligible",
+    currentDeviation: null,
+    lastAlertDeviation: null,
+    escalationDelta: null,
+    requiredDeviation: null,
+    escalationStep: EFFECTIVE_ESCALATION_STEP,
+  };
+
+  if (EFFECTIVE_ESCALATION_STEP == null) {
+    return { ...escalationOff, reason: "escalation_step_not_configured" };
+  }
+
+  if (previousState !== "CRITICAL" || newState !== "CRITICAL") {
+    return { ...escalationOff, reason: "not_critical_same_state" };
+  }
+
+  const currentDeviation = getCurrentDeviation(rule, dropPercent);
+  if (currentDeviation == null || currentDeviation <= 0) {
+    return {
+      ...escalationOff,
+      reason: "invalid_current_deviation",
+      currentDeviation,
+    };
+  }
+
+  const lastAlert = await getLastAlertForState(rule.id, newState);
+  if (!lastAlert) {
+    return {
+      ...escalationOff,
+      reason: "no_previous_alert_for_state",
+      currentDeviation,
+    };
+  }
+
+  const lastAlertDeviation = getCurrentDeviation(rule, Number(lastAlert.drop_percent));
+  if (lastAlertDeviation == null) {
+    return {
+      ...escalationOff,
+      reason: "invalid_previous_deviation",
+      currentDeviation,
+      lastAlertDeviation,
+    };
+  }
+
+  const requiredDeviation = lastAlertDeviation + EFFECTIVE_ESCALATION_STEP;
+  const escalationDelta = currentDeviation - lastAlertDeviation;
+  const shouldTrigger = currentDeviation >= requiredDeviation;
+
+  return {
+    shouldTrigger,
+    reason: shouldTrigger ? "escalation_threshold_met" : "escalation_threshold_not_met",
+    currentDeviation,
+    lastAlertDeviation,
+    escalationDelta,
+    requiredDeviation,
+    escalationStep: EFFECTIVE_ESCALATION_STEP,
+  };
+}
+
 /* -------------------------------------------------------
    Email HTML (state-aware)
 --------------------------------------------------------*/
@@ -853,6 +958,7 @@ async function triggerAlert({
   alertHour,
   previousState,
   newState,
+  escalationInfo,
 }) {
   const templateInfo = selectEmailTemplate(rule, previousState, newState);
 
@@ -893,6 +999,8 @@ async function triggerAlert({
     dropLabel = dropPercent < 0 ? "Rise" : "Drop";
   }
   const endHour = alertHour || 0;
+  const isEscalation = escalationInfo?.isEscalation === true;
+  const escalationTag = isEscalation ? "[Escalation] " : "";
 
   // Build alert_history document
   const historyDoc = {
@@ -904,6 +1012,11 @@ async function triggerAlert({
     metric_value: metricValue,
     historic_value: avgHistoric,
     drop_percent: dropPercent,
+    is_escalation: isEscalation,
+    escalation_step: isEscalation ? escalationInfo.escalationStep : null,
+    escalation_delta: isEscalation ? escalationInfo.escalationDelta : null,
+    last_alert_deviation: isEscalation ? escalationInfo.lastAlertDeviation : null,
+    current_deviation: isEscalation ? escalationInfo.currentDeviation : null,
     triggered_at: new Date(),
   };
 
@@ -911,8 +1024,8 @@ async function triggerAlert({
   if (TEST_MODE) {
     const subject =
       newState === "NORMAL"
-        ? `[TEST] ${event.brand.toUpperCase()} | ${subjectMetricName} Back to Normal | 0-${endHour}h`
-        : `[TEST] ${event.brand.toUpperCase()} | ${templateInfo.subjectTag} ${subjectMetricName} Alert ${rule.metric_name === "performance" ? `| ${Number(metricValue).toFixed(2)} ` : ""}| ${dropVal}% ${dropLabel} | 0-${endHour}h`;
+        ? `[TEST] ${event.brand.toUpperCase()} | ${escalationTag}${subjectMetricName} Back to Normal | 0-${endHour}h`
+        : `[TEST] ${event.brand.toUpperCase()} | ${escalationTag}${templateInfo.subjectTag} ${subjectMetricName} Alert ${rule.metric_name === "performance" ? `| ${Number(metricValue).toFixed(2)} ` : ""}| ${dropVal}% ${dropLabel} | 0-${endHour}h`;
 
     console.log(`🧪 TEST MODE: Sending to ${TEST_EMAIL} only`);
 
@@ -959,8 +1072,8 @@ async function triggerAlert({
 
     const subject =
       newState === "NORMAL"
-        ? `${event.brand.toUpperCase()} | ${subjectMetricName} Back to Normal | 0-${endHour}h`
-        : `${event.brand.toUpperCase()} | ${templateInfo.subjectTag} ${subjectMetricName} Alert ${rule.metric_name === "performance" ? `| ${Number(metricValue).toFixed(2)} ` : ""}| ${dropVal}% ${dropLabel} | 0-${endHour}h`;
+        ? `${event.brand.toUpperCase()} | ${escalationTag}${subjectMetricName} Back to Normal | 0-${endHour}h`
+        : `${event.brand.toUpperCase()} | ${escalationTag}${templateInfo.subjectTag} ${subjectMetricName} Alert ${rule.metric_name === "performance" ? `| ${Number(metricValue).toFixed(2)} ` : ""}| ${dropVal}% ${dropLabel} | 0-${endHour}h`;
 
     console.log(`   📧 Preparing to send email to: ${JSON.stringify(cfg.to)}`);
     await sendEmail(cfg, subject, emailHTML);
@@ -1525,15 +1638,44 @@ async function processIncomingEvent(event) {
 
     // 2️⃣ Check if state transition should fire an alert
     if (!hasStateChanged(previousState, newState)) {
-      console.log(
-        `   🔁 No actionable state change (${previousState} → ${newState}). Skipping.`,
+      const escalationDecision = await evaluateEscalation(
+        rule,
+        previousState,
+        newState,
+        dropPercent,
       );
-      continue;
+
+      if (!escalationDecision.shouldTrigger) {
+        console.log(
+          `   🔁 No actionable state change (${previousState} → ${newState}). Escalation not triggered (${escalationDecision.reason}).`,
+        );
+        continue;
+      }
+
+      console.log(
+        `   ⚡ Escalation Triggered: deviation ${escalationDecision.currentDeviation.toFixed(2)}% >= required ${escalationDecision.requiredDeviation.toFixed(2)}% (last=${escalationDecision.lastAlertDeviation.toFixed(2)}%, step=${escalationDecision.escalationStep}%).`,
+      );
+
+      rule.__escalation_info = {
+        isEscalation: true,
+        escalationStep: escalationDecision.escalationStep,
+        escalationDelta: escalationDecision.escalationDelta,
+        lastAlertDeviation: escalationDecision.lastAlertDeviation,
+        currentDeviation: escalationDecision.currentDeviation,
+      };
+    } else {
+      rule.__escalation_info = {
+        isEscalation: false,
+      };
     }
 
-    console.log(
-      `   ⚠️  State Transition Detected: ${previousState} → ${newState}`,
-    );
+    if (rule.__escalation_info.isEscalation) {
+      console.log(`   ⚠️  Same-state escalation approved for firing.`);
+    } else {
+      console.log(
+        `   ⚠️  State Transition Detected: ${previousState} → ${newState}`,
+      );
+    }
 
     // 3️⃣ Quiet hours: CRITICAL alerts bypass quiet hours
     if (
@@ -1572,9 +1714,9 @@ async function processIncomingEvent(event) {
           );
         }
 
-        if (newState === "CRITICAL") {
+        if (newState === "CRITICAL" || rule.__escalation_info.isEscalation) {
           console.log(
-            `   🌙 Quiet Hours (${qs}-${qe}) ACTIVE but CRITICAL override — allowing alert.`,
+            `   🌙 Quiet Hours (${qs}-${qe}) ACTIVE but ${rule.__escalation_info.isEscalation ? "ESCALATION" : "CRITICAL"} override — allowing alert.`,
           );
         } else {
           console.log(
@@ -1587,7 +1729,9 @@ async function processIncomingEvent(event) {
 
     // 4️⃣ Cooldown check (state NOT updated if blocked)
     // EXCEPTION: If transitioning NORMAL -> CRITICAL, bypass cooldown
-    if (previousState === "NORMAL" && newState === "CRITICAL") {
+    if (rule.__escalation_info.isEscalation) {
+      console.log(`   ⚡ Escalation fire - Bypassing Cooldown.`);
+    } else if (previousState === "NORMAL" && newState === "CRITICAL") {
       console.log(
         `   🔥 CRITICAL transition (NORMAL -> CRITICAL) - Bypassing Cooldown.`,
       );
@@ -1607,7 +1751,7 @@ async function processIncomingEvent(event) {
     // 5️⃣ Dispatch action + update state
     if (dispatchTarget === ALERT_DISPATCH_TARGETS.DSL_ENGINE) {
       if (newState !== "NORMAL") {
-        console.log(`   🚨 FIRE ALERT! [${previousState} → ${newState}] Publishing DSL trigger event...`);
+        console.log(`   🚨 FIRE ALERT! [${previousState} → ${newState}]${rule.__escalation_info.isEscalation ? " [ESCALATION]" : ""} Publishing DSL trigger event...`);
         await publishDslTriggerEvent({
           rule,
           event,
@@ -1622,7 +1766,7 @@ async function processIncomingEvent(event) {
         console.log(`   ✅ Recovery transition (${previousState} → ${newState}) for DSL mode. No alert.fired emitted.`);
       }
     } else {
-      console.log(`   🚨 FIRE ALERT! [${previousState} → ${newState}] Sending notification...`);
+      console.log(`   🚨 FIRE ALERT! [${previousState} → ${newState}]${rule.__escalation_info.isEscalation ? " [ESCALATION]" : ""} Sending notification...`);
       await triggerAlert({
         rule,
         event,
@@ -1632,10 +1776,15 @@ async function processIncomingEvent(event) {
         alertHour: hourCutoff,
         previousState,
         newState,
+        escalationInfo: rule.__escalation_info,
       });
     }
 
-    await updateRuleState(rule._id, newState);
+    if (hasStateChanged(previousState, newState)) {
+      await updateRuleState(rule._id, newState);
+    } else {
+      console.log(`   💾 State unchanged (${newState}); escalation fired without state update.`);
+    }
   }
   console.log(
     `\n══════════════════════════════════════════════════════════════════════════\n`,
