@@ -834,6 +834,36 @@ function generateEmailHTML(
           We noticed a change in <strong>${metricLabel}</strong> that may need attention.
         </p>
 
+        ${
+          event.top5Pages && event.top5Pages.length > 0
+            ? `
+            <div style="background:#ffffff; border:1px solid #e5e7eb; border-radius:10px; padding:16px; margin-bottom:22px;">
+              <h3 style="margin:0 0 12px; font-size:16px; font-weight:600; color:#111827;">Top Pages with Drop in Speed</h3>
+              <table style="width:100%; border-collapse:collapse; font-size:13px; table-layout: fixed;">
+                <thead>
+                  <tr style="border-bottom:2px solid #e5e7eb; text-align:left; color:#6b7280;">
+                    <th style="padding:8px 2px; width: 48%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Page</th>
+                    <th style="padding:8px 2px; text-align:right; width: 18%;">Past</th>
+                    <th style="padding:8px 2px; text-align:right; width: 17%;">Curr</th>
+                    <th style="padding:8px 2px; text-align:right; color:#dc2626; width: 17%;">Drop</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${event.top5Pages.map(p => `
+                    <tr style="border-bottom:1px solid #f3f4f6;">
+                      <td style="padding:8px 2px; color:#374151; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${p.page_name}">${p.page_name}</td>
+                      <td style="padding:8px 2px; text-align:right; color:#4b5563;">${Math.round(p.avgHistoric)}</td>
+                      <td style="padding:8px 2px; text-align:right; color:#111827; font-weight:500;">${Math.round(p.current_value)}</td>
+                      <td style="padding:8px 2px; text-align:right; color:#dc2626; font-weight:600;">-${Math.round(p.dropValue)}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+            `
+            : ""
+        }
+
         <div style="background:#f9fafb; border-radius:10px; padding:20px;
           border:1px solid #e5e7eb; margin-bottom:22px;">
           
@@ -843,36 +873,6 @@ function generateEmailHTML(
             ${metricRows}
           </table>
         </div>
-        
-        ${
-          event.top5Pages && event.top5Pages.length > 0
-            ? `
-            <div style="background:#ffffff; border:1px solid #e5e7eb; border-radius:10px; padding:20px; margin-bottom:22px;">
-              <h3 style="margin:0 0 12px; font-size:16px; font-weight:600; color:#111827;">Top Pages with Drop in Speed</h3>
-              <table style="width:100%; border-collapse:collapse; font-size:14px;">
-                <thead>
-                  <tr style="border-bottom:2px solid #e5e7eb; text-align:left; color:#6b7280;">
-                    <th style="padding:8px 4px;">Page Name</th>
-                    <th style="padding:8px 4px; text-align:right;">Past Avg</th>
-                    <th style="padding:8px 4px; text-align:right;">Current</th>
-                    <th style="padding:8px 4px; text-align:right; color:#dc2626;">Drop</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${event.top5Pages.map(p => `
-                    <tr style="border-bottom:1px solid #f3f4f6;">
-                      <td style="padding:8px 4px; color:#374151; max-width:250px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${p.page_name}">${p.page_name}</td>
-                      <td style="padding:8px 4px; text-align:right; color:#4b5563;">${p.avgHistoric}</td>
-                      <td style="padding:8px 4px; text-align:right; color:#111827; font-weight:500;">${p.current_value}</td>
-                      <td style="padding:8px 4px; text-align:right; color:#dc2626; font-weight:600;">-${p.dropValue}</td>
-                    </tr>
-                  `).join('')}
-                </tbody>
-              </table>
-            </div>
-            `
-            : ""
-        }
 
         <div style="background:#fef3c7; border-left:4px solid #f59e0b; padding:12px 16px; margin-bottom:20px; border-radius:6px;">
           <p style="margin:0; font-size:14px; color:#92400e;">
