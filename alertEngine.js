@@ -5,6 +5,18 @@ const { MongoClient } = require("mongodb");
 const { normalizeAlertFiredEvent } = require("./utils/alertFiredEventNormalizer");
 const { rabbitmqPublisher } = require("./utils/rabbitmqPublisher");
 let mongoClient = null;
+let speedMongoClient = null; // Client for Speed Service (test_results)
+
+async function getSpeedMongoClient() {
+  if (speedMongoClient) return speedMongoClient;
+  const uri = process.env.SPPED_MONGO_URI || process.env.SPEED_MONGO_URI;
+  if (!uri) {
+    throw new Error("SPPED_MONGO_URI or SPEED_MONGO_URI is not set in environment");
+  }
+  speedMongoClient = new MongoClient(uri);
+  await speedMongoClient.connect();
+  return speedMongoClient;
+}
 
 const ALERT_DISPATCH_TARGETS = {
   ALERT_SYSTEM: "alert_system",
@@ -749,15 +761,23 @@ function generateEmailHTML(
   `;
 
   if (hasAvg) {
-    const historicalLabel =
-      rule.metric_name === "performance"
-        ? "Prior Speed"
-        : `Historical Avg (${rule.lookback_days} days)`;
+    const historicalLabel = `Historical Avg (${rule.lookback_days || 7} days)`;
     metricRows += `
       <tr>
         <td style="padding:10px 0; color:#6b7280; font-size:15px;">${historicalLabel}</td>
         <td style="padding:10px 0; text-align:right; font-weight:bold; font-size:15px;">
           ${formatValue(avgHistoric)}
+        </td>
+      </tr>
+    `;
+  }
+
+  if (event.prior_speed_fallback != null) {
+    metricRows += `
+      <tr>
+        <td style="padding:10px 0; color:#6b7280; font-size:15px;">Prior Speed (Today)</td>
+        <td style="padding:10px 0; text-align:right; font-weight:bold; font-size:15px;">
+          ${formatValue(event.prior_speed_fallback)}
         </td>
       </tr>
     `;
@@ -824,6 +844,36 @@ function generateEmailHTML(
           </table>
         </div>
         
+        ${
+          event.top5Pages && event.top5Pages.length > 0
+            ? `
+            <div style="background:#ffffff; border:1px solid #e5e7eb; border-radius:10px; padding:20px; margin-bottom:22px;">
+              <h3 style="margin:0 0 12px; font-size:16px; font-weight:600; color:#111827;">Top Pages with Drop in Speed</h3>
+              <table style="width:100%; border-collapse:collapse; font-size:14px;">
+                <thead>
+                  <tr style="border-bottom:2px solid #e5e7eb; text-align:left; color:#6b7280;">
+                    <th style="padding:8px 4px;">Page Name</th>
+                    <th style="padding:8px 4px; text-align:right;">Past Avg</th>
+                    <th style="padding:8px 4px; text-align:right;">Current</th>
+                    <th style="padding:8px 4px; text-align:right; color:#dc2626;">Drop</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${event.top5Pages.map(p => `
+                    <tr style="border-bottom:1px solid #f3f4f6;">
+                      <td style="padding:8px 4px; color:#374151; max-width:250px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${p.page_name}">${p.page_name}</td>
+                      <td style="padding:8px 4px; text-align:right; color:#4b5563;">${p.avgHistoric}</td>
+                      <td style="padding:8px 4px; text-align:right; color:#111827; font-weight:500;">${p.current_value}</td>
+                      <td style="padding:8px 4px; text-align:right; color:#dc2626; font-weight:600;">-${p.dropValue}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+            `
+            : ""
+        }
+
         <div style="background:#fef3c7; border-left:4px solid #f59e0b; padding:12px 16px; margin-bottom:20px; border-radius:6px;">
           <p style="margin:0; font-size:14px; color:#92400e;">
             <strong>Metric:</strong> ${metricLabel}<br>
@@ -946,7 +996,7 @@ async function sendPushWebhook(payload) {
    Trigger Alert (state-aware)
 --------------------------------------------------------*/
 // 🧪 TEST MODE: Set to true to send all alerts to single test email
-const TEST_MODE = false;
+const TEST_MODE = true;
 const TEST_EMAIL = process.env.TEST_EMAIL;
 
 async function triggerAlert({
@@ -1536,59 +1586,152 @@ async function processIncomingEvent(event) {
 
     // always calculate historical data for context
     if (rule.metric_name === "performance") {
-      // --- Daily Baseline Reset Logic ---
-      let history = [];
       try {
-        const db = mongoClient.db();
-        history = await db
-          .collection("alert_history")
-          .find({ alert_id: rule.id })
-          .sort({ triggered_at: -1 })
-          .limit(1)
-          .toArray();
-      } catch (err) {
-        console.error("🔥 Error fetching performance history:", err.message);
-      }
+        const speedDb = await getSpeedMongoClient();
+        const db = speedDb.db("pagespeed_brands"); 
+        const testResults = db.collection("test_results");
 
-      // Get Today in IST
-      const nowIST = new Date(
-        new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }),
-      );
-      const todayStr = nowIST.toISOString().split("T")[0];
+        const lookbackDays = rule.lookback_days || 7;
+        const nowIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+        
+        // Generate date limits
+        const dateLimit = new Date(nowIST);
+        dateLimit.setDate(dateLimit.getDate() - lookbackDays);
+        
+        const formatMongoDate = (d) => d.toISOString().split("T")[0];
+        const startDateStr = formatMongoDate(dateLimit);
+        const todayStr = formatMongoDate(nowIST);
 
-      // avgHistoric will now ONLY be used for display of "Prior Speed" in the email
-      avgHistoric = null;
+        console.log(`   📊 [Speed Mongo] Querying history for '${brandName}' from ${startDateStr} to ${todayStr} (Lookback: ${lookbackDays} days)`);
 
-      if (history.length > 0) {
-        const lastIST = new Date(
-          new Date(history[0].triggered_at).toLocaleString("en-US", {
-            timeZone: "Asia/Kolkata",
-          }),
-        );
-        const lastDateStr = lastIST.toISOString().split("T")[0];
-
-        // Only use history if it happened TODAY in IST
-        if (lastDateStr === todayStr) {
-          try {
-            const raw = history[0].payload;
-            const prevPayload = typeof raw === "string" ? JSON.parse(raw) : raw;
-            const prevValue = prevPayload.performance;
-            if (typeof prevValue === "number" && prevValue > 0) {
-              avgHistoric = prevValue;
+        // 1. Calculate Aggregate Historical Average
+        const aggResult = await testResults.aggregate([
+          {
+            $match: {
+              brand_name: brandName,
+              date: { $gte: startDateStr, $lt: todayStr },
+              performance: { $exists: true, $ne: null }
             }
-          } catch (e) {
-            console.error("🔥 Performance history error:", e.message);
+          },
+          {
+            $group: {
+              _id: null,
+              avgPerformance: { $avg: "$performance" }
+            }
+          }
+        ]).toArray();
+
+        // 2. Calculate Page-level Historical Averages
+        const pageHistory = await testResults.aggregate([
+          {
+            $match: {
+              brand_name: brandName,
+              date: { $gte: startDateStr, $lt: todayStr },
+              performance: { $exists: true, $ne: null }
+            }
+          },
+          {
+            $group: {
+              _id: "$page_name",
+              avgPerformance: { $avg: "$performance" }
+            }
+          }
+        ]).toArray();
+
+        // Map to hash map for easy lookup
+        const pageHistMap = {};
+        for (const p of pageHistory) {
+          if (p._id) pageHistMap[p._id] = p.avgPerformance;
+        }
+
+        // 3. Query Today's Page-level Performance (Current)
+        const todayResults = await testResults.find({
+          brand_name: brandName,
+          date: todayStr,
+          performance: { $exists: true, $ne: null }
+        }).toArray();
+
+        const pageTodayMap = {};
+        for (const r of todayResults) {
+          if (r.page_name) {
+            // If multiple readings today, compute avg
+            if (!pageTodayMap[r.page_name]) pageTodayMap[r.page_name] = [];
+            pageTodayMap[r.page_name].push(r.performance);
           }
         }
-      }
+        
+        // Final current averages per page
+        const pageCurrentMap = {};
+        for (const [k, v] of Object.entries(pageTodayMap)) {
+          const sum = v.reduce((a, b) => a + b, 0);
+          pageCurrentMap[k] = sum / v.length;
+        }
 
-      // Calculate dropPercent relative to threshold as per user request
-      const threshold = Number(rule.threshold_value);
-      if (!Number.isNaN(threshold) && threshold !== 0) {
-        dropPercent = ((threshold - metricValue) / threshold) * 100;
-        console.log(
-          `   📉 Performance Check: Threshold=${threshold} Current=${metricValue} Delta=${dropPercent.toFixed(2)}% | Prior=${avgHistoric}`,
-        );
+        // 4. Compute Drops for Top 5 list
+        const drops = [];
+        for (const [pageName, histVal] of Object.entries(pageHistMap)) {
+          const currVal = pageCurrentMap[pageName];
+          if (currVal !== undefined) {
+            const dropValue = histVal - currVal;
+            drops.push({
+              page_name: pageName,
+              avgHistoric: Number(histVal.toFixed(2)),
+              current_value: Number(currVal.toFixed(2)),
+              dropValue: Number(dropValue.toFixed(2))
+            });
+          }
+        }
+
+        // Sort descending by drop size
+        drops.sort((a, b) => b.dropValue - a.dropValue);
+        const top5Drops = drops.slice(0, 5).filter(d => d.dropValue > 0); // Only include pages that dropped
+
+        // Attach to event so triggerAlert can access it
+        event.top5Pages = top5Drops.length > 0 ? top5Drops : null;
+
+        // Assign computed aggregate historical average
+        if (aggResult.length > 0 && aggResult[0].avgPerformance != null) {
+          avgHistoric = Number(aggResult[0].avgPerformance.toFixed(2));
+          console.log(`   📈 [Speed Mongo] Historical Avg: ${avgHistoric}`);
+          
+          // Re-calculate drop percent using historical avg as baseline
+          dropPercent = ((avgHistoric - metricValue) / avgHistoric) * 100;
+          console.log(`   📉 [Speed Mongo] Drop Check: Previous=${avgHistoric} Current=${metricValue} Drop=${dropPercent.toFixed(2)}%`);
+        } else {
+          console.log(`   ⚠️ [Speed Mongo] No historical documents found for aggregate rollup.`);
+        }
+
+        // --- Prior alert tracking back for fallback display template info ---
+        let history = [];
+        try {
+          const main_db = mongoClient.db();
+          history = await main_db.collection("alert_history")
+            .find({ alert_id: rule.id })
+            .sort({ triggered_at: -1 })
+            .limit(1)
+            .toArray();
+        } catch (err) {
+          console.error("🔥 Error fetching alert history for prior node fallback:", err.message);
+        }
+
+        if (history.length > 0) {
+          const lastIST = new Date(new Date(history[0].triggered_at).toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+          const lastDateStr = formatMongoDate(lastIST);
+          
+          if (lastDateStr === todayStr) {
+            try {
+              const prevValue = history[0].payload.performance;
+              if (typeof prevValue === "number" && prevValue > 0) {
+                event.prior_speed_fallback = prevValue;
+              }
+            } catch (e) {
+              console.error("🔥 Performance snapshot fail:", e.message);
+            }
+          }
+        }
+
+      } catch (err) {
+        console.error("🔥 Error querying speed test results Mongo aggregator:", err.message);
       }
     } else {
       const lookbackDays = rule.lookback_days || 7;
