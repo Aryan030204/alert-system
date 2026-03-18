@@ -1694,7 +1694,7 @@ async function processIncomingEvent(event) {
         }
 
         // Sort based on whether it is a drop or a rise overall
-        const isOverallDrop = avgResult.length > 0 && aggResult[0].avgPerformance != null && aggResult[0].avgPerformance > metricValue;
+        const isOverallDrop = aggResult.length > 0 && aggResult[0].avgPerformance != null && aggResult[0].avgPerformance > metricValue;
         
         if (isOverallDrop) {
           drops.sort((a, b) => b.dropValue - a.dropValue); // Largest drop first
