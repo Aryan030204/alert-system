@@ -841,11 +841,11 @@ function generateEmailHTML(
               <h3 style="margin:0 0 12px; font-size:16px; font-weight:600; color:#111827;">Top Pages with Drop in Speed</h3>
               <table style="width:100%; border-collapse:collapse; font-size:13px; table-layout: fixed;">
                 <thead>
-                  <tr style="border-bottom:2px solid #e5e7eb; text-align:left; color:#6b7280;">
+                    <tr style="border-bottom:2px solid #e5e7eb; text-align:left; color:#6b7280;">
                     <th style="padding:8px 2px; width: 48%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Page</th>
                     <th style="padding:8px 2px; text-align:right; width: 18%;">Past</th>
                     <th style="padding:8px 2px; text-align:right; width: 17%;">Curr</th>
-                    <th style="padding:8px 2px; text-align:right; color:#dc2626; width: 17%;">Drop</th>
+                    <th style="padding:8px 2px; text-align:right; color:#6b7280; width: 17%;">Change</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -854,7 +854,7 @@ function generateEmailHTML(
                       <td style="padding:8px 2px; color:#374151; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${p.page_name}">${p.page_name}</td>
                       <td style="padding:8px 2px; text-align:right; color:#4b5563;">${Math.round(p.avgHistoric)}</td>
                       <td style="padding:8px 2px; text-align:right; color:#111827; font-weight:500;">${Math.round(p.current_value)}</td>
-                      <td style="padding:8px 2px; text-align:right; color:#dc2626; font-weight:600;">-${Math.round(p.dropValue)}</td>
+                      <td style="padding:8px 2px; text-align:right; color:${p.dropValue > 0 ? '#dc2626' : '#10b981'}; font-weight:600;">${p.dropValue > 0 ? `-${Math.round(p.dropValue)}` : `+${Math.round(Math.abs(p.dropValue))}`}</td>
                     </tr>
                   `).join('')}
                 </tbody>
@@ -996,7 +996,7 @@ async function sendPushWebhook(payload) {
    Trigger Alert (state-aware)
 --------------------------------------------------------*/
 // 🧪 TEST MODE: Set to true to send all alerts to single test email
-const TEST_MODE = false;
+const TEST_MODE = true;
 const TEST_EMAIL = process.env.TEST_EMAIL;
 
 async function triggerAlert({
@@ -1592,15 +1592,26 @@ async function processIncomingEvent(event) {
         const testResults = db.collection("test_results");
 
         const lookbackDays = rule.lookback_days || 7;
-        const nowIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
         
-        // Generate date limits
-        const dateLimit = new Date(nowIST);
+        let todayStr = event.date; // Use date from event if populated
+        if (!todayStr) {
+          const formatter = new Intl.DateTimeFormat("en-US", {
+            timeZone: "Asia/Kolkata",
+            year: "numeric", month: "2-digit", day: "2-digit"
+          });
+          const parts = formatter.formatToParts(new Date());
+          const map = {};
+          parts.forEach(p => map[p.type] = p.value);
+          todayStr = `${map.year}-${map.month}-${map.day}`;
+        }
+        
+        // Generate date limits safely
+        const basisDate = new Date(`${todayStr}T00:00:00Z`); // Explicit UTC midnight
+        const dateLimit = new Date(basisDate);
         dateLimit.setDate(dateLimit.getDate() - lookbackDays);
         
         const formatMongoDate = (d) => d.toISOString().split("T")[0];
         const startDateStr = formatMongoDate(dateLimit);
-        const todayStr = formatMongoDate(nowIST);
 
         console.log(`   📊 [Speed Mongo] Querying history for '${brandName}' from ${startDateStr} to ${todayStr} (Lookback: ${lookbackDays} days)`);
 
@@ -1682,9 +1693,18 @@ async function processIncomingEvent(event) {
           }
         }
 
-        // Sort descending by drop size
-        drops.sort((a, b) => b.dropValue - a.dropValue);
-        const top5Drops = drops.slice(0, 5).filter(d => d.dropValue > 0); // Only include pages that dropped
+        // Sort based on whether it is a drop or a rise overall
+        const isOverallDrop = avgResult.length > 0 && aggResult[0].avgPerformance != null && aggResult[0].avgPerformance > metricValue;
+        
+        if (isOverallDrop) {
+          drops.sort((a, b) => b.dropValue - a.dropValue); // Largest drop first
+        } else {
+          drops.sort((a, b) => a.dropValue - b.dropValue); // Largest surge first (most negative drop)
+        }
+
+        const top5Drops = drops
+          .filter(d => isOverallDrop ? d.dropValue > 0 : d.dropValue < 0)
+          .slice(0, 5);
 
         // Attach to event so triggerAlert can access it
         event.top5Pages = top5Drops.length > 0 ? top5Drops : null;
