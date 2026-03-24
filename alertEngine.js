@@ -1452,6 +1452,20 @@ async function processIncomingEvent(event) {
   if (typeof event === "string") event = JSON.parse(event);
   event = normalizeEventKeys(event);
 
+  // 🕒 Resolve Target Date for DB Queries early
+  let todayStr = event.date;
+  if (!todayStr) {
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Kolkata",
+      year: "numeric", month: "2-digit", day: "2-digit"
+    });
+    const parts = formatter.formatToParts(new Date());
+    const map = {};
+    parts.forEach(p => map[p.type] = p.value);
+    todayStr = `${map.year}-${map.month}-${map.day}`;
+  }
+  event.__resolved_today = todayStr; // save for lookback fallbacks below
+
   let brandId = event.brand_id;
 
   // Resolve brand_id from brand_key if missing
@@ -1504,37 +1518,42 @@ async function processIncomingEvent(event) {
     `══════════════════════════════════════════════════════════════════════════`,
   );
 
-  // Fetch current data from hour_wise_sales bypassing event values
+  // Fetch current data from overall_summary bypassing event values
   try {
-    const dbNameForQuery = brandName.toUpperCase();
-    console.log(
-      `   📊 Fetching current metrics from ${dbNameForQuery}.hour_wise_sales up to hour ${hourCutoff}`,
+    const [brandRows] = await pool.query(
+      "SELECT db_name, name FROM master.brands WHERE id = ?",
+      [brandId]
     );
 
-    // Using CONVERT_TZ(NOW(), 'UTC', 'Asia/Kolkata') to match historical calculation
-    const [currentDataRows] = await pool.query(
-      `
-      SELECT 
-        SUM(total_sales) AS sf_total_sales,
-        SUM(number_of_orders) AS sf_total_orders,
-        SUM(number_of_prepaid_orders) AS sf_total_prepaid,
-        SUM(number_of_cod_orders) AS sf_total_cod,
-        SUM(number_of_sessions) AS sf_total_sessions,
-        SUM(number_of_atc_sessions) AS sf_total_atc
-      FROM ${dbNameForQuery}.hour_wise_sales
-      WHERE date = DATE(CONVERT_TZ(NOW(), 'UTC', 'Asia/Kolkata'))
-        AND hour < ?
-      `,
-      [hourCutoff],
+    if (brandRows.length === 0) {
+      console.error(`   ❌ brand_id ${brandId} not found in master.brands`);
+      return;
+    }
+
+    const dbNameForQuery = brandRows[0].db_name;
+    const actualBrandName = brandRows[0].name.toUpperCase();
+
+    console.log(
+      `   📊 Fetching current metrics from ${dbNameForQuery}.overall_summary for date ${todayStr}`,
     );
+
+    const [currentDataRows] = await pool.query(
+      `SELECT * FROM ${dbNameForQuery}.overall_summary WHERE date = ? LIMIT 1`,
+      [todayStr]
+    );
+
+    if (currentDataRows.length === 0) {
+      console.warn(`   ⚠️ No overall_summary found for date ${todayStr} in ${dbNameForQuery}`);
+    }
 
     const curr = currentDataRows[0] || {};
 
     // Override event payload
-    event.total_sales = Number(curr.sf_total_sales) || 0;
-    event.total_orders = Number(curr.sf_total_orders) || 0;
-    event.total_sessions = Number(curr.sf_total_sessions) || 0;
-    event.total_atc_sessions = Number(curr.sf_total_atc) || 0;
+    event.total_sales = Number(curr.total_sales) || 0;
+    event.total_orders = Number(curr.total_orders) || 0;
+    event.total_sessions = Number(curr.total_sessions) || 0;
+    event.total_atc_sessions = Number(curr.total_atc_sessions) || 0;
+    event.gross_sales = Number(curr.gross_sales) || 0;
 
     // Calculate derived core metrics
     event.aov =
@@ -1545,11 +1564,11 @@ async function processIncomingEvent(event) {
         : 0;
 
     console.log(
-      `   📊 Overridden Event Metrics: Sales=${event.total_sales}, Orders=${event.total_orders}, Sessions=${event.total_sessions}, CVR=${event.conversion_rate.toFixed(2)}%`,
+      `   📊 Overridden Metrics for ${actualBrandName}: Sales=${event.total_sales}, Orders=${event.total_orders}, Sessions=${event.total_sessions}, CVR=${event.conversion_rate.toFixed(2)}%`,
     );
   } catch (err) {
     console.error(
-      `   🔥 Error fetching current metrics from hour_wise_sales:`,
+      `   🔥 Error fetching current metrics from overall_summary:`,
       err.message,
     );
   }
@@ -1592,18 +1611,6 @@ async function processIncomingEvent(event) {
         const testResults = db.collection("test_results");
 
         const lookbackDays = rule.lookback_days || 7;
-        
-        let todayStr = event.date; // Use date from event if populated
-        if (!todayStr) {
-          const formatter = new Intl.DateTimeFormat("en-US", {
-            timeZone: "Asia/Kolkata",
-            year: "numeric", month: "2-digit", day: "2-digit"
-          });
-          const parts = formatter.formatToParts(new Date());
-          const map = {};
-          parts.forEach(p => map[p.type] = p.value);
-          todayStr = `${map.year}-${map.month}-${map.day}`;
-        }
         
         // Generate date limits safely
         const basisDate = new Date(`${todayStr}T00:00:00Z`); // Explicit UTC midnight
