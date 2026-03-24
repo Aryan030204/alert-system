@@ -355,7 +355,6 @@ async function loadRulesForBrand(brandId) {
       .collection("alerts")
       .find({
         brand_id: Number(brandId),
-        is_active: { $in: [1, true] },
       })
       .toArray();
 
@@ -1114,19 +1113,25 @@ async function triggerAlert({
     );
   }
 
-  for (const ch of channels) {
-    if (ch.channel_type !== "email") continue;
+  const shouldSendEmail = rule.is_active === 1 || rule.is_active === true;
 
-    const cfg = parseChannelConfig(ch.channel_config);
-    if (!cfg) continue;
+  if (shouldSendEmail) {
+    for (const ch of channels) {
+      if (ch.channel_type !== "email") continue;
 
-    const subject =
-      newState === "NORMAL"
-        ? `${event.brand.toUpperCase()} | ${escalationTag}${subjectMetricName} Back to Normal | 0-${endHour}h`
-        : `${event.brand.toUpperCase()} | ${escalationTag}${templateInfo.subjectTag} ${subjectMetricName} Alert ${rule.metric_name === "performance" ? `| ${Number(metricValue).toFixed(2)} ` : ""}| ${dropVal}% ${dropLabel} | 0-${endHour}h`;
+      const cfg = parseChannelConfig(ch.channel_config);
+      if (!cfg) continue;
 
-    console.log(`   📧 Preparing to send email to: ${JSON.stringify(cfg.to)}`);
-    await sendEmail(cfg, subject, emailHTML);
+      const subject =
+        newState === "NORMAL"
+          ? `${event.brand.toUpperCase()} | ${escalationTag}${subjectMetricName} Back to Normal | 0-${endHour}h`
+          : `${event.brand.toUpperCase()} | ${escalationTag}${templateInfo.subjectTag} ${subjectMetricName} Alert ${rule.metric_name === "performance" ? `| ${Number(metricValue).toFixed(2)} ` : ""}| ${dropVal}% ${dropLabel} | 0-${endHour}h`;
+
+      console.log(`   📧 Preparing to send email to: ${JSON.stringify(cfg.to)}`);
+      await sendEmail(cfg, subject, emailHTML);
+    }
+  } else {
+    console.log(`   📧 Emails skipped (is_active is false/0)`);
   }
 
   // Build the webhook payload condition string
@@ -1184,8 +1189,12 @@ async function triggerAlert({
   };
 
   // 1) Send events to Push API
-  console.log(`   🚀 Preparing to send event to Push API`);
-  await sendPushWebhook(webhookPayload);
+  if (rule.push_allowed !== false && rule.push_allowed !== "false") {
+    console.log(`   🚀 Preparing to send event to Push API`);
+    await sendPushWebhook(webhookPayload);
+  } else {
+    console.log(`   🚫 Push Webhook SKIPPED (push_allowed is false)`);
+  }
 
   // 2) Log full event to push_notifications (excluding email_body) AND log history
   try {
