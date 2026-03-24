@@ -1854,39 +1854,9 @@ async function processIncomingEvent(event) {
 
       if (inQuiet) {
         console.log(
-          `   🌙 [QUIET HOURS] Currently in quiet window (${qs}:00-${qe}:00 IST, current: ${currentISTHour}:00)`,
+          `   💤 Quiet Hours (${qs}-${qe}) ACTIVE. Alert suppressed (state NOT updated).`,
         );
-
-        // Minimum volume gate during quiet hours
-        if (
-          rule.minimum_volume &&
-          Object.keys(rule.minimum_volume).length > 0
-        ) {
-          console.log(
-            `   🌙 [QUIET HOURS] Running minimum volume gate check...`,
-          );
-          const volumeOk = checkMinimumVolume(rule, event);
-          if (!volumeOk) {
-            console.log(
-              `   🌙 [QUIET HOURS] Minimum volume NOT met. Alert suppressed (state NOT updated).`,
-            );
-            continue;
-          }
-          console.log(
-            `   🌙 [QUIET HOURS] Volume gate passed — proceeding with alert evaluation.`,
-          );
-        }
-
-        if (newState === "CRITICAL" || rule.__escalation_info.isEscalation) {
-          console.log(
-            `   🌙 Quiet Hours (${qs}-${qe}) ACTIVE but ${rule.__escalation_info.isEscalation ? "ESCALATION" : "CRITICAL"} override — allowing alert.`,
-          );
-        } else {
-          console.log(
-            `   💤 Quiet Hours (${qs}-${qe}) ACTIVE. Alert suppressed (state NOT updated).`,
-          );
-          continue;
-        }
+        continue;
       }
     }
 
