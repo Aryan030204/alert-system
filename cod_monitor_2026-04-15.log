@@ -1,0 +1,46 @@
+2026-04-15 14:36:22  INFO      __main__  Starting COD monitor | brands=['PTS', 'TMC', 'AJMAL', 'BBB', 'VAMA'] | workers=5 | dry_run=False
+2026-04-15 14:36:23  INFO      monitor  [VAMA] Products checked: 4  |  alerts triggered: 1
+2026-04-15 14:36:23  WARNING   monitor  [VAMA] These whitelisted products had no data (or below min_orders): [8622333100210, 8715135189170, 8740073111730, 8570090062002, 8657193566386]
+2026-04-15 14:36:23  INFO      __main__  Completed brand: VAMA
+2026-04-15 14:36:23  INFO      monitor  [AJMAL] Products checked: 2  |  alerts triggered: 1
+2026-04-15 14:36:23  WARNING   monitor  [AJMAL] These whitelisted products had no data (or below min_orders): [8058959921322, 8048126820522, 8010225516714, 7987789889706, 8308792164522]
+2026-04-15 14:36:23  INFO      __main__  Completed brand: AJMAL
+2026-04-15 14:36:24  INFO      monitor  [BBB] Products checked: 5  |  alerts triggered: 0
+2026-04-15 14:36:24  WARNING   monitor  [BBB] These whitelisted products had no data (or below min_orders): [9870268498215, 9996616466727, 9863098564903, 9946307690791, 9870267023655]
+2026-04-15 14:36:24  INFO      __main__  Completed brand: BBB
+2026-04-15 14:36:24  INFO      monitor  [PTS] Products checked: 2  |  alerts triggered: 0
+2026-04-15 14:36:24  WARNING   monitor  [PTS] These whitelisted products had no data (or below min_orders): [10097371775251, 8047927558419, 8047927558419, 8726032023827, 8047927558419]
+2026-04-15 14:36:24  INFO      monitor  [TMC] Products checked: 3  |  alerts triggered: 0
+2026-04-15 14:36:24  WARNING   monitor  [TMC] These whitelisted products had no data (or below min_orders): [8417496367300, 8384621805764, 8374355493060, 7207918698692, 7207918895300]
+2026-04-15 14:36:24  INFO      __main__  Completed brand: PTS
+2026-04-15 14:36:24  INFO      __main__  Completed brand: TMC
+2026-04-15 14:36:24  INFO      __main__  JSON output mode enabled; console report suppressed.
+2026-04-15 14:36:24  INFO      __main__  COD run payload prepared: {"run_date": "2026-04-15", "brand_count": 5, "total_alerts": 3, "total_errors": 0, "dry_run": false}
+2026-04-15 14:36:24  INFO      __main__  JSON output mode: alert engine POST suppressed.
+2026-04-15 14:36:24  INFO      __main__  JSON output mode: local Slack/email notifications suppressed.
+2026-04-15 14:38:42  INFO      __main__  Starting COD monitor | brands=['PTS', 'TMC', 'AJMAL', 'BBB', 'VAMA'] | workers=5 | dry_run=False
+2026-04-15 14:38:42  INFO      monitor  [PTS] Overall -> today=41.8% yesterday=40.6% delta=+1.2%
+2026-04-15 14:38:42  INFO      monitor  [BBB] Overall -> today=49.9% yesterday=49.2% delta=+0.7%
+2026-04-15 14:38:42  INFO      monitor  [AJMAL] Overall -> today=37.6% yesterday=34.4% delta=+3.3%
+2026-04-15 14:38:42  INFO      monitor  [VAMA] Overall -> today=46.0% yesterday=44.8% delta=+1.2%
+2026-04-15 14:38:42  INFO      monitor  [AJMAL] Products checked: 2 | alerts triggered: 1
+2026-04-15 14:38:42  WARNING   monitor  [AJMAL] These whitelisted products had no data (or below min_orders): [8058959921322, 8048126820522, 8010225516714, 7987789889706, 8308792164522]
+2026-04-15 14:38:42  INFO      monitor  [BBB] Products checked: 5 | alerts triggered: 0
+2026-04-15 14:38:42  WARNING   monitor  [BBB] These whitelisted products had no data (or below min_orders): [9870268498215, 9996616466727, 9863098564903, 9946307690791, 9870267023655]
+2026-04-15 14:38:42  INFO      monitor  [PTS] Products checked: 2 | alerts triggered: 0
+2026-04-15 14:38:42  WARNING   monitor  [PTS] These whitelisted products had no data (or below min_orders): [10097371775251, 8047927558419, 8047927558419, 8726032023827, 8047927558419]
+2026-04-15 14:38:42  INFO      monitor  [VAMA] Products checked: 4 | alerts triggered: 1
+2026-04-15 14:38:42  WARNING   monitor  [VAMA] These whitelisted products had no data (or below min_orders): [8622333100210, 8715135189170, 8740073111730, 8570090062002, 8657193566386]
+2026-04-15 14:38:42  INFO      __main__  Completed brand: VAMA
+2026-04-15 14:38:43  INFO      __main__  Completed brand: PTS
+2026-04-15 14:38:43  INFO      __main__  Completed brand: BBB
+2026-04-15 14:38:43  INFO      __main__  Completed brand: AJMAL
+2026-04-15 14:38:43  INFO      monitor  [TMC] Overall -> today=0.2% yesterday=0.2% delta=-0.1%
+2026-04-15 14:38:43  INFO      monitor  [TMC] Products checked: 3 | alerts triggered: 0
+2026-04-15 14:38:43  WARNING   monitor  [TMC] These whitelisted products had no data (or below min_orders): [8417496367300, 8384621805764, 8374355493060, 7207918698692, 7207918895300]
+2026-04-15 14:38:43  INFO      __main__  Completed brand: TMC
+2026-04-15 14:38:43  INFO      __main__  JSON output mode enabled; console report suppressed.
+2026-04-15 14:38:43  INFO      __main__  COD run payload prepared: {"run_date": "2026-04-15", "brand_count": 5, "total_alerts": 3, "total_errors": 0, "dry_run": false}
+2026-04-15 14:38:43  INFO      __main__  JSON output mode: alert engine POST suppressed.
+2026-04-15 14:38:43  INFO      __main__  JSON output mode: local Slack/email notifications suppressed.
+2026-04-15 14:38:43  INFO      __main__  Monitor run complete.

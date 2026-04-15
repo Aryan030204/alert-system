@@ -16,7 +16,8 @@ import json
 import logging
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date
+from datetime import date, datetime
+from decimal import Decimal
 
 from config import (
     ALERT_ENGINE_COD_MONITOR_URL,
@@ -132,6 +133,20 @@ def build_run_payload(brand_results: list[dict], dry_run: bool) -> dict:
     }
 
 
+def _json_safe(value):
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, tuple):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, Decimal):
+        return int(value) if value == value.to_integral_value() else float(value)
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    return value
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     args = parse_args()
@@ -198,11 +213,11 @@ def main():
     if errors:
         logger.warning("%d brand(s) encountered errors.", len(errors))
         if args.json_output:
-            print(json.dumps(run_payload))
+            print(json.dumps(_json_safe(run_payload)))
         sys.exit(1)
 
     if args.json_output:
-        print(json.dumps(run_payload))
+        print(json.dumps(_json_safe(run_payload)))
 
     logger.info("Monitor run complete.")
 

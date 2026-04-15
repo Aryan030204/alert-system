@@ -8,7 +8,8 @@
     "dev": "nodemon server.js",
     "start": "node server.js",
     "backfill:trigger-mode": "node scripts/backfill-trigger-mode.js",
-    "test:publish-alert-fired": "node scripts/publish-test-alert-fired.js"
+    "test:publish-alert-fired": "node scripts/publish-test-alert-fired.js",
+    "test:cod-monitor": "node test-cod-monitor.js"
   },
   "keywords": [],
   "author": "",
