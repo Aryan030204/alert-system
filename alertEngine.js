@@ -694,8 +694,9 @@ function generateEmailHTML(
   templateInfo,
 ) {
   const brandName = String(event.brand || "").toUpperCase();
-  const metricLabel =
-    rule.metric_name === "performance"
+  const metricLabel = event.overrideMetricLabel
+    ? event.overrideMetricLabel
+    : rule.metric_name === "performance"
       ? "SPEED"
       : rule.metric_name === "conversion_rate"
         ? "CVR"
@@ -728,9 +729,15 @@ function generateEmailHTML(
   // Current value color: green for recovery, red otherwise
   const currentValColor = tpl.newState === "NORMAL" ? "#10b981" : "#dc2626";
 
+  const currentValueLabel = event.overrideCurrentValueLabel || "Current Value";
+  const thresholdDisplayOverride = event.overrideThresholdDisplay;
+  const historicalLabelOverride = event.overrideHistoricalLabel;
+  const deltaLabel = event.overrideDeltaLabel || null;
+  const additionalHTML = event.additionalHTML || "";
+
   let metricRows = `
     <tr>
-      <td style="padding:10px 0; color:#6b7280; font-size:15px;">Current Value</td>
+      <td style="padding:10px 0; color:#6b7280; font-size:15px;">${currentValueLabel}</td>
       <td style="padding:10px 0; text-align:right; font-weight:bold; color:${currentValColor}; font-size:15px;">
         ${formatValue(metricValue)}
       </td>
@@ -738,7 +745,9 @@ function generateEmailHTML(
   `;
 
   let thresholdDisplay = "";
-  if (rule.threshold_type === "percentage_drop") {
+  if (thresholdDisplayOverride) {
+    thresholdDisplay = thresholdDisplayOverride;
+  } else if (rule.threshold_type === "percentage_drop") {
     thresholdDisplay = `${rule.threshold_value}% drop`;
   } else if (rule.threshold_type === "percentage_rise") {
     thresholdDisplay = `${rule.threshold_value}% rise`;
@@ -760,7 +769,8 @@ function generateEmailHTML(
   `;
 
   if (hasAvg) {
-    const historicalLabel = `Historical Avg (${rule.lookback_days || 7} days)`;
+    const historicalLabel =
+      historicalLabelOverride || `Historical Avg (${rule.lookback_days || 7} days)`;
     metricRows += `
       <tr>
         <td style="padding:10px 0; color:#6b7280; font-size:15px;">${historicalLabel}</td>
@@ -784,10 +794,10 @@ function generateEmailHTML(
 
   if (hasDrop) {
     const dropColor = dropPercent > 0 ? "#e11d48" : "#10b981";
-    const dropLabel = dropPercent > 0 ? "Drop" : "Increase";
+    const dropLabel = deltaLabel || `Percentage ${dropPercent > 0 ? "Drop" : "Increase"}`;
     metricRows += `
       <tr>
-        <td style="padding:10px 0; color:#6b7280; font-size:15px;">Percentage ${dropLabel}</td>
+        <td style="padding:10px 0; color:#6b7280; font-size:15px;">${dropLabel}</td>
         <td style="padding:10px 0; text-align:right; font-weight:bold; color:${dropColor}; font-size:15px;">
           ${Math.abs(dropPercent).toFixed(2)}%
         </td>
@@ -872,6 +882,8 @@ function generateEmailHTML(
             ${metricRows}
           </table>
         </div>
+
+        ${additionalHTML}
 
         <div style="background:#fef3c7; border-left:4px solid #f59e0b; padding:12px 16px; margin-bottom:20px; border-radius:6px;">
           <p style="margin:0; font-size:14px; color:#92400e;">
@@ -995,7 +1007,7 @@ async function sendPushWebhook(payload) {
    Trigger Alert (state-aware)
 --------------------------------------------------------*/
 // 🧪 TEST MODE: Set to true to send all alerts to single test email
-const TEST_MODE = false;
+const TEST_MODE = String(process.env.TEST_MODE || "false").toLowerCase() === "true";
 const TEST_EMAIL = process.env.TEST_EMAIL;
 
 async function triggerAlert({
@@ -1940,8 +1952,250 @@ async function processIncomingEvent(event) {
   );
 }
 
+function parseJsonArrayEnv(name) {
+  const raw = process.env[name];
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.map(String).map((v) => v.trim()).filter(Boolean) : [];
+  } catch {
+    return String(raw)
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+  }
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function formatCodPercent(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "N/A";
+  return `${num.toFixed(2)}%`;
+}
+
+function formatCodDelta(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "N/A";
+  const sign = num > 0 ? "+" : "";
+  return `${sign}${num.toFixed(2)}%`;
+}
+
+function buildCodAdditionalHTML(result) {
+  const overall = result.overall || {};
+  const thresholds = result.thresholds || {};
+  const configuredIds = Array.isArray(result.configured_product_ids)
+    ? result.configured_product_ids
+    : [];
+  const alerts = Array.isArray(result.alerts) ? result.alerts : [];
+  const productAlerts = alerts.filter((alert) => alert.level === "product");
+  const overallAlert = alerts.find((alert) => alert.level === "overall");
+
+  const overallMetrics = `
+    <div style="background:#ffffff; border:1px solid #e5e7eb; border-radius:10px; padding:16px; margin-bottom:22px;">
+      <h3 style="margin:0 0 12px; font-size:16px; font-weight:600; color:#111827;">COD Snapshot</h3>
+      <table style="width:100%; border-collapse:collapse; font-size:14px;">
+        <tr><td style="padding:6px 0; color:#6b7280;">Today COD %</td><td style="padding:6px 0; text-align:right; font-weight:600;">${escapeHtml(formatCodPercent(overall.today_cod_pct))}</td></tr>
+        <tr><td style="padding:6px 0; color:#6b7280;">Yesterday COD %</td><td style="padding:6px 0; text-align:right; font-weight:600;">${escapeHtml(formatCodPercent(overall.yesterday_cod_pct))}</td></tr>
+        <tr><td style="padding:6px 0; color:#6b7280;">Delta</td><td style="padding:6px 0; text-align:right; font-weight:600; color:#dc2626;">${escapeHtml(formatCodDelta(overall.delta_cod_pct))}</td></tr>
+        <tr><td style="padding:6px 0; color:#6b7280;">Orders Today</td><td style="padding:6px 0; text-align:right; font-weight:600;">${escapeHtml(overall.today_total_orders ?? "N/A")}</td></tr>
+        <tr><td style="padding:6px 0; color:#6b7280;">Overall Threshold</td><td style="padding:6px 0; text-align:right; font-weight:600;">${escapeHtml(thresholds.overall ?? "N/A")}% absolute delta</td></tr>
+        <tr><td style="padding:6px 0; color:#6b7280;">Product Threshold</td><td style="padding:6px 0; text-align:right; font-weight:600;">${escapeHtml(thresholds.product ?? "N/A")}% absolute delta</td></tr>
+      </table>
+      ${
+        overallAlert
+          ? `<p style="margin:14px 0 0; font-size:13px; color:#4b5563;">${escapeHtml(overallAlert.message)}</p>`
+          : ""
+      }
+    </div>
+  `;
+
+  const productSection = productAlerts.length
+    ? `
+      <div style="background:#ffffff; border:1px solid #e5e7eb; border-radius:10px; padding:16px; margin-bottom:22px;">
+        <h3 style="margin:0 0 12px; font-size:16px; font-weight:600; color:#111827;">Triggered Products</h3>
+        <table style="width:100%; border-collapse:collapse; font-size:13px;">
+          <thead>
+            <tr style="border-bottom:2px solid #e5e7eb; color:#6b7280; text-align:left;">
+              <th style="padding:8px 6px;">Product</th>
+              <th style="padding:8px 6px; text-align:right;">ID</th>
+              <th style="padding:8px 6px; text-align:right;">Today</th>
+              <th style="padding:8px 6px; text-align:right;">Yesterday</th>
+              <th style="padding:8px 6px; text-align:right;">Delta</th>
+              <th style="padding:8px 6px; text-align:right;">Orders</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${productAlerts
+              .map(
+                (alert) => `
+                  <tr style="border-bottom:1px solid #f3f4f6;">
+                    <td style="padding:8px 6px;">${escapeHtml(alert.product_name || "N/A")}</td>
+                    <td style="padding:8px 6px; text-align:right;">${escapeHtml(alert.product_id || "N/A")}</td>
+                    <td style="padding:8px 6px; text-align:right;">${escapeHtml(formatCodPercent(alert.today_cod_pct))}</td>
+                    <td style="padding:8px 6px; text-align:right;">${escapeHtml(formatCodPercent(alert.yesterday_cod_pct))}</td>
+                    <td style="padding:8px 6px; text-align:right; color:#dc2626; font-weight:600;">${escapeHtml(formatCodDelta(alert.delta))}</td>
+                    <td style="padding:8px 6px; text-align:right;">${escapeHtml(alert.today_total_orders ?? "N/A")}</td>
+                  </tr>
+                `,
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    `
+    : "";
+
+  const configSection = `
+    <div style="background:#ffffff; border:1px solid #e5e7eb; border-radius:10px; padding:16px; margin-bottom:22px;">
+      <h3 style="margin:0 0 12px; font-size:16px; font-weight:600; color:#111827;">Monitoring Configuration</h3>
+      <p style="margin:0; font-size:13px; color:#4b5563;">
+        Product min orders: <strong>${escapeHtml(result.product_min_orders ?? "N/A")}</strong><br>
+        Configured product IDs: <strong>${escapeHtml(configuredIds.length ? configuredIds.join(", ") : "None")}</strong>
+      </p>
+    </div>
+  `;
+
+  return overallMetrics + productSection + configSection;
+}
+
+function buildCodEmailPayload(result, runDate) {
+  const overall = result.overall || {};
+  const firstAlert = Array.isArray(result.alerts) && result.alerts.length ? result.alerts[0] : null;
+  const currentValue = overall.today_cod_pct ?? firstAlert?.today_cod_pct ?? null;
+  const baselineValue = overall.yesterday_cod_pct ?? firstAlert?.yesterday_cod_pct ?? null;
+  const deltaValue = overall.delta_cod_pct ?? firstAlert?.delta ?? null;
+  const brand = String(result.brand || "").toUpperCase();
+
+  const event = {
+    brand,
+    date: runDate,
+    overrideMetricLabel: "COD %",
+    overrideCurrentValueLabel: "Current COD %",
+    overrideHistoricalLabel: "Yesterday COD %",
+    overrideDeltaLabel: "Delta vs Yesterday",
+    overrideThresholdDisplay: `${result.thresholds?.overall ?? "N/A"}% overall / ${result.thresholds?.product ?? "N/A"}% product`,
+    additionalHTML: buildCodAdditionalHTML(result),
+  };
+
+  const syntheticRule = {
+    metric_name: "cod_pct",
+    threshold_type: "absolute",
+    threshold_value: result.thresholds?.overall ?? 0,
+    lookback_days: 1,
+    severity: "medium",
+  };
+
+  const templateInfo = {
+    bodyHeading: `COD alert for ${brand}`,
+    bodySubtext: "Cash on delivery mix moved beyond the configured monitor thresholds.",
+    headerColor: "#dc2626",
+    emoji: "⚠️",
+  };
+
+  const subject = `[COD Monitor] ${brand} | COD ${formatCodPercent(currentValue)} | Δ ${formatCodDelta(deltaValue)}`;
+  const html = generateEmailHTML(
+    event,
+    syntheticRule,
+    Number.isFinite(Number(currentValue)) ? Number(currentValue) : "N/A",
+    Number.isFinite(Number(baselineValue)) ? Number(baselineValue) : null,
+    Number.isFinite(Number(deltaValue)) ? Number(deltaValue) : null,
+    undefined,
+    templateInfo,
+  );
+
+  return { subject, html };
+}
+
+async function sendCodMonitorEmails(body) {
+  const recipients = TEST_MODE ? [TEST_EMAIL] : parseJsonArrayEnv("COD_ALERT_IDS");
+  if (!recipients.length) {
+    console.warn("⚠️ COD monitor email skipped: COD_ALERT_IDS is empty.");
+    return { attempted: 0, sent: 0 };
+  }
+
+  const triggeredResults = body.brand_results.filter(
+    (result) => result.status === "ok" && Array.isArray(result.alerts) && result.alerts.length > 0,
+  );
+
+  let sent = 0;
+  for (const result of triggeredResults) {
+    const { subject, html } = buildCodEmailPayload(result, body.run_date);
+    const finalSubject = TEST_MODE ? `[TEST] ${subject}` : subject;
+    await sendEmail({ to: recipients }, finalSubject, html);
+    sent += 1;
+  }
+
+  return { attempted: triggeredResults.length, sent };
+}
+
+async function processCodMonitorResults(payload) {
+  const body =
+    typeof payload === "string" ? JSON.parse(payload) : payload || {};
+
+  if (body.event_type !== "cod_monitor.run") {
+    throw new Error("Unsupported COD monitor payload: expected event_type=cod_monitor.run");
+  }
+
+  if (!Array.isArray(body.brand_results)) {
+    throw new Error("COD monitor payload missing brand_results array");
+  }
+
+  const summaries = body.brand_results.map((result) => ({
+    brand: result.brand,
+    status: result.status || "unknown",
+    alertCount: Number(result.alert_count || result.alerts?.length || 0),
+    productRows: Array.isArray(result.product_rows) ? result.product_rows.length : 0,
+    overallDeltaCodPct: result.overall?.delta_cod_pct ?? null,
+    overallTodayCodPct: result.overall?.today_cod_pct ?? null,
+    overallYesterdayCodPct: result.overall?.yesterday_cod_pct ?? null,
+    error: result.error || null,
+  }));
+
+  console.log("\n📥 COD monitor run received by alert engine");
+  console.log(
+    `   Run date: ${body.run_date || "unknown"} | Brands: ${summaries.length} | Alerts: ${Number(body.total_alerts || 0)} | Errors: ${Number(body.total_errors || 0)} | Dry run: ${Boolean(body.dry_run)}`,
+  );
+  summaries.forEach((summary) => {
+    console.log(
+      `   [${summary.brand}] status=${summary.status} alerts=${summary.alertCount} productRows=${summary.productRows} overallDelta=${summary.overallDeltaCodPct ?? "N/A"}`,
+    );
+  });
+
+  let emailDelivery = { attempted: 0, sent: 0 };
+  if (!body.dry_run && Number(body.total_alerts || 0) > 0) {
+    emailDelivery = await sendCodMonitorEmails(body);
+  } else if (body.dry_run) {
+    console.log("   COD dry-run detected: COD alert emails suppressed.");
+  } else {
+    console.log("   No COD alerts triggered: no COD emails sent.");
+  }
+
+  return {
+    accepted: true,
+    eventType: body.event_type,
+    source: body.source || "cod_monitor",
+    runDate: body.run_date || null,
+    dryRun: Boolean(body.dry_run),
+    brandCount: summaries.length,
+    totalAlerts: Number(body.total_alerts || 0),
+    totalErrors: Number(body.total_errors || 0),
+    emailDelivery,
+    summaries,
+  };
+}
+
 module.exports = {
   processIncomingEvent,
+  processCodMonitorResults,
   getAllRules,
   TEST_MODE,
   TEST_EMAIL,

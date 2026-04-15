@@ -1,7 +1,14 @@
 require("dotenv").config({ path: "./.env" });
 const express = require("express");
 const { Receiver } = require("@upstash/qstash");
-const { processIncomingEvent, getAllRules, TEST_MODE, TEST_EMAIL } = require("./alertEngine");
+const { startCodMonitorScheduler } = require("./codMonitorScheduler");
+const {
+  processIncomingEvent,
+  processCodMonitorResults,
+  getAllRules,
+  TEST_MODE,
+  TEST_EMAIL,
+} = require("./alertEngine");
 
 const app = express();
 
@@ -19,6 +26,18 @@ app.get("/rules", async (req, res) => {
   } catch (err) {
     console.error("Error fetching rules:", err);
     res.status(500).json({ error: "Failed to fetch rules" });
+  }
+});
+
+startCodMonitorScheduler();
+
+app.post("/cod-monitor/results", express.json(), async (req, res) => {
+  try {
+    const result = await processCodMonitorResults(req.body);
+    return res.status(200).json(result);
+  } catch (err) {
+    console.error("COD monitor webhook error:", err.message);
+    return res.status(400).json({ error: err.message });
   }
 });
 
@@ -48,8 +67,6 @@ app.post(
     }
   }
 );
-
-app.use(express.json());
 
 app.listen(process.env.PORT || 5000, () => {
   console.log(`🚀 Alerting Server running on port ${process.env.PORT}`);

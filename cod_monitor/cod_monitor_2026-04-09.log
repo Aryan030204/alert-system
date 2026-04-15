@@ -1,0 +1,38 @@
+2026-04-09 12:52:43  INFO      __main__  Starting COD monitor | brands=['PTS', 'TMC', 'AJMAL', 'BBB', 'VAMA'] | workers=5 | dry_run=True
+2026-04-09 12:52:45  INFO      monitor  [VAMA] Products checked: 5  |  alerts triggered: 0
+2026-04-09 12:52:45  WARNING   monitor  [VAMA] These whitelisted products had no data (or below min_orders): [8622333100210, 8715135189170, 8740073111730, 8570090062002, 8657193566386]
+2026-04-09 12:52:45  INFO      __main__  Completed brand: VAMA
+2026-04-09 12:52:45  INFO      monitor  [AJMAL] Products checked: 2  |  alerts triggered: 0
+2026-04-09 12:52:45  WARNING   monitor  [AJMAL] These whitelisted products had no data (or below min_orders): [8058959921322, 8048126820522, 8010225516714, 7987789889706, 8308792164522]
+2026-04-09 12:52:45  INFO      __main__  Completed brand: AJMAL
+2026-04-09 12:52:45  INFO      monitor  [BBB] Products checked: 5  |  alerts triggered: 1
+2026-04-09 12:52:45  INFO      monitor  [TMC] Products checked: 3  |  alerts triggered: 0
+2026-04-09 12:52:45  WARNING   monitor  [BBB] These whitelisted products had no data (or below min_orders): [9870268498215, 9996616466727, 9863098564903, 9946307690791, 9870267023655]
+2026-04-09 12:52:45  WARNING   monitor  [TMC] These whitelisted products had no data (or below min_orders): [8417496367300, 8384621805764, 8374355493060, 7207918698692, 7207918895300]
+2026-04-09 12:52:45  INFO      monitor  [PTS] Products checked: 2  |  alerts triggered: 0
+2026-04-09 12:52:45  INFO      __main__  Completed brand: TMC
+2026-04-09 12:52:45  WARNING   monitor  [PTS] These whitelisted products had no data (or below min_orders): [10097371775251, 8047927558419, 8047927558419, 8726032023827, 8047927558419]
+2026-04-09 12:52:45  INFO      __main__  Completed brand: BBB
+2026-04-09 12:52:45  INFO      __main__  Completed brand: PTS
+2026-04-09 12:52:45  INFO      __main__  Dry-run mode: notifications suppressed.
+2026-04-09 12:52:45  INFO      __main__  Monitor run complete.
+2026-04-09 13:28:19  INFO      __main__  Starting COD monitor | brands=['PTS', 'TMC', 'AJMAL', 'BBB', 'VAMA'] | workers=5 | dry_run=True
+2026-04-09 14:31:02  INFO      __main__  Starting COD monitor | brands=['PTS', 'TMC', 'AJMAL', 'BBB', 'VAMA'] | workers=5 | dry_run=True
+2026-04-09 14:31:54  INFO      __main__  Starting COD monitor | brands=['PTS', 'TMC', 'AJMAL', 'BBB', 'VAMA'] | workers=5 | dry_run=False
+2026-04-09 14:31:56  INFO      monitor  [VAMA] Products checked: 5  |  alerts triggered: 0
+2026-04-09 14:31:56  WARNING   monitor  [VAMA] These whitelisted products had no data (or below min_orders): [8622333100210, 8715135189170, 8740073111730, 8570090062002, 8657193566386]
+2026-04-09 14:31:56  INFO      __main__  Completed brand: VAMA
+2026-04-09 14:31:56  INFO      monitor  [PTS] Products checked: 2  |  alerts triggered: 0
+2026-04-09 14:31:56  WARNING   monitor  [PTS] These whitelisted products had no data (or below min_orders): [10097371775251, 8047927558419, 8047927558419, 8726032023827, 8047927558419]
+2026-04-09 14:31:56  INFO      __main__  Completed brand: PTS
+2026-04-09 14:31:56  INFO      monitor  [AJMAL] Products checked: 3  |  alerts triggered: 2
+2026-04-09 14:31:56  WARNING   monitor  [AJMAL] These whitelisted products had no data (or below min_orders): [8058959921322, 8048126820522, 8010225516714, 7987789889706, 8308792164522]
+2026-04-09 14:31:56  INFO      __main__  Completed brand: AJMAL
+2026-04-09 14:31:57  INFO      monitor  [BBB] Products checked: 5  |  alerts triggered: 1
+2026-04-09 14:31:57  INFO      monitor  [TMC] Products checked: 3  |  alerts triggered: 0
+2026-04-09 14:31:57  WARNING   monitor  [BBB] These whitelisted products had no data (or below min_orders): [9870268498215, 9996616466727, 9863098564903, 9946307690791, 9870267023655]
+2026-04-09 14:31:57  WARNING   monitor  [TMC] These whitelisted products had no data (or below min_orders): [8417496367300, 8384621805764, 8374355493060, 7207918698692, 7207918895300]
+2026-04-09 14:31:57  INFO      __main__  Completed brand: BBB
+2026-04-09 14:31:57  INFO      __main__  Completed brand: TMC
+2026-04-09 14:31:57  INFO      __main__  Sending alerts (4 total)...
+2026-04-09 14:31:57  INFO      __main__  Monitor run complete.
