@@ -23,8 +23,8 @@ _PAYMENT_CASE = """
 
 
 # ---------------------------------------------------------------------------
-# 1. Overall store-level DoD  (overall_summary table)
-#    No params — always compares CURDATE() vs CURDATE()-1
+# 1. Overall store-level baseline check (overall_summary table)
+#    Compares today's split with the rolling 7-day average (excluding today)
 # ---------------------------------------------------------------------------
 OVERALL_DOD_QUERY = """
 WITH daily AS (
@@ -34,45 +34,63 @@ WITH daily AS (
         cod_orders,
         prepaid_orders,
         partially_paid_orders,
-        ROUND(cod_orders * 100.0 / NULLIF(total_orders, 0), 2) AS cod_pct
+        ROUND(cod_orders * 100.0 / NULLIF(total_orders, 0), 2)          AS cod_pct,
+        ROUND(prepaid_orders * 100.0 / NULLIF(total_orders, 0), 2)      AS prepaid_pct,
+        ROUND(partially_paid_orders * 100.0 / NULLIF(total_orders, 0), 2) AS partial_pct
     FROM overall_summary
-    WHERE date IN (CURDATE(), DATE_SUB(CURDATE(), INTERVAL 1 DAY))
+    WHERE date BETWEEN DATE_SUB(CURDATE(), INTERVAL 7 DAY) AND CURDATE()
 ),
-today     AS (SELECT * FROM daily WHERE date = CURDATE()),
-yesterday AS (SELECT * FROM daily WHERE date = DATE_SUB(CURDATE(), INTERVAL 1 DAY))
+today AS (
+    SELECT *
+    FROM daily
+    WHERE date = CURDATE()
+),
+baseline AS (
+    SELECT
+        COUNT(*)                          AS baseline_days,
+        ROUND(AVG(cod_pct), 2)           AS baseline_cod_pct,
+        ROUND(AVG(prepaid_pct), 2)       AS baseline_prepaid_pct,
+        ROUND(AVG(partial_pct), 2)       AS baseline_partial_pct
+    FROM daily
+    WHERE date BETWEEN DATE_SUB(CURDATE(), INTERVAL 7 DAY) AND DATE_SUB(CURDATE(), INTERVAL 1 DAY)
+)
 
 SELECT
-    t.date                                          AS today_date,
-    t.total_orders                                  AS today_total_orders,
-    t.cod_orders                                    AS today_cod_orders,
-    t.cod_pct                                       AS today_cod_pct,
-    y.date                                          AS yesterday_date,
-    y.total_orders                                  AS yesterday_total_orders,
-    y.cod_orders                                    AS yesterday_cod_orders,
-    y.cod_pct                                       AS yesterday_cod_pct,
-    ROUND(t.cod_pct - y.cod_pct, 2)                AS delta_cod_pct
+    t.date                                            AS today_date,
+    t.total_orders                                    AS today_total_orders,
+    t.cod_orders                                      AS today_cod_orders,
+    t.prepaid_orders                                  AS today_prepaid_orders,
+    t.partially_paid_orders                           AS today_partial_orders,
+    t.cod_pct                                         AS today_cod_pct,
+    t.prepaid_pct                                     AS today_prepaid_pct,
+    t.partial_pct                                     AS today_partial_pct,
+    b.baseline_days,
+    b.baseline_cod_pct,
+    b.baseline_prepaid_pct,
+    b.baseline_partial_pct,
+    ROUND((t.cod_pct - b.baseline_cod_pct) * 100.0 / NULLIF(b.baseline_cod_pct, 0), 2)         AS delta_cod_pct,
+    ROUND((t.prepaid_pct - b.baseline_prepaid_pct) * 100.0 / NULLIF(b.baseline_prepaid_pct, 0), 2) AS delta_prepaid_pct,
+    ROUND((t.partial_pct - b.baseline_partial_pct) * 100.0 / NULLIF(b.baseline_partial_pct, 0), 2) AS delta_partial_pct
 FROM today t
-CROSS JOIN yesterday y
+CROSS JOIN baseline b
 """
 
 
 # ---------------------------------------------------------------------------
-# 2. Product-level DoD  (shopify_orders table)
+# 2. Product-level baseline check (shopify_orders table)
 #
 #    Params (positional %s in order):
-#      1,2   → today_date, yesterday_date   (WHERE created_date IN (...))
-#      3..N  → product_id whitelist         (WHERE product_id IN (...))
+#      1..N  → product_id whitelist         (WHERE product_id IN (...))
 #      N+1   → min_orders                   (HAVING total_orders >= ?)
-#      N+2   → today_date                   (today_p subquery filter)
-#      N+3   → yesterday_date               (yesterday_p subquery filter)
+#      N+2   → min_baseline_days            (baseline history quality filter)
 #
-#    Returns one row per product that exists on BOTH today and yesterday,
-#    sorted by |delta_cod_pct| descending.
+#    Returns one row per product that exists on today and has enough baseline
+#    days in the last 7 days, sorted by |relative COD delta| descending.
 #    Includes product name resolved from line_item via product_id.
 # ---------------------------------------------------------------------------
-def product_dod_query(product_ids: list[str]) -> str:
+def product_baseline_query(product_ids: list[str]) -> str:
     """
-    Build the product-level DoD SQL for a given product_id whitelist.
+    Build the product-level baseline SQL for a given product_id whitelist.
     product_ids must be non-empty (enforced by monitor.py before calling).
     """
     if not product_ids:
@@ -83,24 +101,19 @@ def product_dod_query(product_ids: list[str]) -> str:
     return f"""
 WITH classified AS (
     -- Classify each (date, order, product) exactly once.
-    -- GROUP BY includes payment_gateway_names so multi-gateway rows
-    -- don't duplicate; the CASE picks the right type per row.
     SELECT
         created_date,
         order_id,
         product_id,
-        -- Use MIN(line_item) as the canonical product name
-        -- (consistent across orders for the same product_id)
         MIN(line_item)  AS product_name,
         {_PAYMENT_CASE} AS payment_type
     FROM shopify_orders
-    WHERE created_date IN (%s, %s)          -- param 1,2: today, yesterday
-      AND product_id IN ({placeholders})     -- param 3..N: whitelist
+    WHERE created_date BETWEEN DATE_SUB(CURDATE(), INTERVAL 7 DAY) AND CURDATE()
+      AND product_id IN ({placeholders})      -- param 1..N: whitelist
     GROUP BY created_date, order_id, product_id, payment_gateway_names
 ),
 
 daily_product AS (
-    -- Aggregate to (date, product) level on DISTINCT order basis
     SELECT
         created_date,
         product_id,
@@ -113,14 +126,40 @@ daily_product AS (
             COUNT(DISTINCT CASE WHEN payment_type = 'COD' THEN order_id END)
             * 100.0
             / NULLIF(COUNT(DISTINCT order_id), 0),
-        2) AS cod_pct
+        2) AS cod_pct,
+        ROUND(
+            COUNT(DISTINCT CASE WHEN payment_type = 'Prepaid' THEN order_id END)
+            * 100.0
+            / NULLIF(COUNT(DISTINCT order_id), 0),
+        2) AS prepaid_pct,
+        ROUND(
+            COUNT(DISTINCT CASE WHEN payment_type = 'Partial' THEN order_id END)
+            * 100.0
+            / NULLIF(COUNT(DISTINCT order_id), 0),
+        2) AS partial_pct
     FROM classified
     GROUP BY created_date, product_id
-    HAVING COUNT(DISTINCT order_id) >= %s   -- param N+1: min_orders noise filter
+    HAVING COUNT(DISTINCT order_id) >= %s    -- param N+1: min_orders noise filter
 ),
 
-today_p     AS (SELECT * FROM daily_product WHERE created_date = %s),   -- param N+2
-yesterday_p AS (SELECT * FROM daily_product WHERE created_date = %s)    -- param N+3
+today_p AS (
+    SELECT *
+    FROM daily_product
+    WHERE created_date = CURDATE()
+),
+
+baseline_p AS (
+    SELECT
+        product_id,
+        ROUND(AVG(cod_pct), 2)     AS baseline_cod_pct,
+        ROUND(AVG(prepaid_pct), 2) AS baseline_prepaid_pct,
+        ROUND(AVG(partial_pct), 2) AS baseline_partial_pct,
+        COUNT(*)                   AS baseline_days
+    FROM daily_product
+    WHERE created_date BETWEEN DATE_SUB(CURDATE(), INTERVAL 7 DAY) AND DATE_SUB(CURDATE(), INTERVAL 1 DAY)
+    GROUP BY product_id
+    HAVING COUNT(*) >= %s          -- param N+2: min_baseline_days
+)
 
 SELECT
     t.product_id,
@@ -130,11 +169,16 @@ SELECT
     t.prepaid_orders                            AS today_prepaid_orders,
     t.partial_orders                            AS today_partial_orders,
     t.cod_pct                                   AS today_cod_pct,
-    y.total_orders                              AS yesterday_total_orders,
-    y.cod_orders                                AS yesterday_cod_orders,
-    y.cod_pct                                   AS yesterday_cod_pct,
-    ROUND(t.cod_pct - y.cod_pct, 2)            AS delta_cod_pct
+    t.prepaid_pct                               AS today_prepaid_pct,
+    t.partial_pct                               AS today_partial_pct,
+    b.baseline_days,
+    b.baseline_cod_pct,
+    b.baseline_prepaid_pct,
+    b.baseline_partial_pct,
+    ROUND((t.cod_pct - b.baseline_cod_pct) * 100.0 / NULLIF(b.baseline_cod_pct, 0), 2)         AS delta_cod_pct,
+    ROUND((t.prepaid_pct - b.baseline_prepaid_pct) * 100.0 / NULLIF(b.baseline_prepaid_pct, 0), 2) AS delta_prepaid_pct,
+    ROUND((t.partial_pct - b.baseline_partial_pct) * 100.0 / NULLIF(b.baseline_partial_pct, 0), 2) AS delta_partial_pct
 FROM today_p t
-INNER JOIN yesterday_p y USING (product_id)
-ORDER BY ABS(t.cod_pct - y.cod_pct) DESC
+INNER JOIN baseline_p b USING (product_id)
+ORDER BY ABS((t.cod_pct - b.baseline_cod_pct) * 100.0 / NULLIF(b.baseline_cod_pct, 0)) DESC
 """

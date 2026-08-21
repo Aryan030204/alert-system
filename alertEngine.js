@@ -2004,11 +2004,11 @@ function buildCodAdditionalHTML(result) {
       <h3 style="margin:0 0 12px; font-size:16px; font-weight:600; color:#111827;">COD Snapshot</h3>
       <table style="width:100%; border-collapse:collapse; font-size:14px;">
         <tr><td style="padding:6px 0; color:#6b7280;">Today COD %</td><td style="padding:6px 0; text-align:right; font-weight:600;">${escapeHtml(formatCodPercent(overall.today_cod_pct))}</td></tr>
-        <tr><td style="padding:6px 0; color:#6b7280;">Yesterday COD %</td><td style="padding:6px 0; text-align:right; font-weight:600;">${escapeHtml(formatCodPercent(overall.yesterday_cod_pct))}</td></tr>
-        <tr><td style="padding:6px 0; color:#6b7280;">Delta</td><td style="padding:6px 0; text-align:right; font-weight:600; color:#dc2626;">${escapeHtml(formatCodDelta(overall.delta_cod_pct))}</td></tr>
+        <tr><td style="padding:6px 0; color:#6b7280;">7-Day Avg COD %</td><td style="padding:6px 0; text-align:right; font-weight:600;">${escapeHtml(formatCodPercent(overall.baseline_cod_pct))}</td></tr>
+        <tr><td style="padding:6px 0; color:#6b7280;">Delta vs 7d Avg</td><td style="padding:6px 0; text-align:right; font-weight:600; color:#dc2626;">${escapeHtml(formatCodDelta(overall.delta_cod_pct))}</td></tr>
         <tr><td style="padding:6px 0; color:#6b7280;">Orders Today</td><td style="padding:6px 0; text-align:right; font-weight:600;">${escapeHtml(overall.today_total_orders ?? "N/A")}</td></tr>
-        <tr><td style="padding:6px 0; color:#6b7280;">Overall Threshold</td><td style="padding:6px 0; text-align:right; font-weight:600;">${escapeHtml(thresholds.overall ?? "N/A")}% absolute delta</td></tr>
-        <tr><td style="padding:6px 0; color:#6b7280;">Product Threshold</td><td style="padding:6px 0; text-align:right; font-weight:600;">${escapeHtml(thresholds.product ?? "N/A")}% absolute delta</td></tr>
+        <tr><td style="padding:6px 0; color:#6b7280;">Overall Threshold</td><td style="padding:6px 0; text-align:right; font-weight:600;">${escapeHtml(thresholds.overall ?? "N/A")}% relative increase</td></tr>
+        <tr><td style="padding:6px 0; color:#6b7280;">Product Threshold</td><td style="padding:6px 0; text-align:right; font-weight:600;">${escapeHtml(thresholds.product ?? "N/A")}% relative increase</td></tr>
       </table>
       ${
         overallAlert
@@ -2028,7 +2028,7 @@ function buildCodAdditionalHTML(result) {
               <th style="padding:8px 6px;">Product</th>
               <th style="padding:8px 6px; text-align:right;">ID</th>
               <th style="padding:8px 6px; text-align:right;">Today</th>
-              <th style="padding:8px 6px; text-align:right;">Yesterday</th>
+              <th style="padding:8px 6px; text-align:right;">7d Avg</th>
               <th style="padding:8px 6px; text-align:right;">Delta</th>
               <th style="padding:8px 6px; text-align:right;">Orders</th>
             </tr>
@@ -2041,7 +2041,7 @@ function buildCodAdditionalHTML(result) {
                     <td style="padding:8px 6px;">${escapeHtml(alert.product_name || "N/A")}</td>
                     <td style="padding:8px 6px; text-align:right;">${escapeHtml(alert.product_id || "N/A")}</td>
                     <td style="padding:8px 6px; text-align:right;">${escapeHtml(formatCodPercent(alert.today_cod_pct))}</td>
-                    <td style="padding:8px 6px; text-align:right;">${escapeHtml(formatCodPercent(alert.yesterday_cod_pct))}</td>
+                    <td style="padding:8px 6px; text-align:right;">${escapeHtml(formatCodPercent(alert.baseline_cod_pct))}</td>
                     <td style="padding:8px 6px; text-align:right; color:#dc2626; font-weight:600;">${escapeHtml(formatCodDelta(alert.delta))}</td>
                     <td style="padding:8px 6px; text-align:right;">${escapeHtml(alert.today_total_orders ?? "N/A")}</td>
                   </tr>
@@ -2071,7 +2071,7 @@ function buildCodEmailPayload(result, runDate) {
   const overall = result.overall || {};
   const firstAlert = Array.isArray(result.alerts) && result.alerts.length ? result.alerts[0] : null;
   const currentValue = overall.today_cod_pct ?? firstAlert?.today_cod_pct ?? null;
-  const baselineValue = overall.yesterday_cod_pct ?? firstAlert?.yesterday_cod_pct ?? null;
+  const baselineValue = overall.baseline_cod_pct ?? firstAlert?.baseline_cod_pct ?? null;
   const deltaValue = overall.delta_cod_pct ?? firstAlert?.delta ?? null;
   const brand = String(result.brand || "").toUpperCase();
 
@@ -2080,8 +2080,8 @@ function buildCodEmailPayload(result, runDate) {
     date: runDate,
     overrideMetricLabel: "COD %",
     overrideCurrentValueLabel: "Current COD %",
-    overrideHistoricalLabel: "Yesterday COD %",
-    overrideDeltaLabel: "Delta vs Yesterday",
+    overrideHistoricalLabel: "7-Day Avg COD %",
+    overrideDeltaLabel: "Delta vs 7d Avg",
     overrideThresholdDisplay: `${result.thresholds?.overall ?? "N/A"}% overall / ${result.thresholds?.product ?? "N/A"}% product`,
     additionalHTML: buildCodAdditionalHTML(result),
   };
@@ -2156,7 +2156,7 @@ async function processCodMonitorResults(payload) {
     productRows: Array.isArray(result.product_rows) ? result.product_rows.length : 0,
     overallDeltaCodPct: result.overall?.delta_cod_pct ?? null,
     overallTodayCodPct: result.overall?.today_cod_pct ?? null,
-    overallYesterdayCodPct: result.overall?.yesterday_cod_pct ?? null,
+    overallBaselineCodPct: result.overall?.baseline_cod_pct ?? null,
     error: result.error || null,
   }));
 

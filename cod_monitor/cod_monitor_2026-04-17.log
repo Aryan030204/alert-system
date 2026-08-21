@@ -1,0 +1,4 @@
+2026-04-17 15:27:27  INFO      __main__  Starting COD monitor | brands=['VAMA', 'TMC', 'AJMAL', 'BBB', 'PTS'] | workers=5 | dry_run=False
+2026-04-17 15:27:29  INFO      monitor  [VAMA] Overall -> today=53.0% baseline=47.2% delta=+5.8%
+2026-04-17 15:27:30  INFO      monitor  [PTS] Overall -> today=42.4% baseline=42.2% delta=+0.3%
+2026-04-17 15:27:32  INFO      monitor  [AJMAL] Overall -> today=34.7% baseline=32.5% delta=+2.2%

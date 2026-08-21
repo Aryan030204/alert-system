@@ -31,8 +31,8 @@ Multiple Shopify DBs (TMC, BBB, ...)
      └── product_dod_query()   ← shopify_orders table
          ↓
    Threshold check
-     ├── |delta| > overall_threshold  →  overall alert
-     └── |delta| > product_threshold  →  product alert
+     ├── relative COD delta > overall_threshold  →  overall alert
+     └── relative COD delta > product_threshold  →  product alert
          ↓
    alerts.py
      ├── Console (always)
@@ -73,7 +73,7 @@ BRANDS = {
             "database": "tmc_db",
         },
         "thresholds": {
-            "overall": 8.0,   # % absolute DoD change
+            "overall": 8.0,   # % relative change vs 7-day average
             "product": 15.0,
         },
         "product_min_orders": 20,

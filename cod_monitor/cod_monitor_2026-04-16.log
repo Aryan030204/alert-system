@@ -1,0 +1,64 @@
+2026-04-16 14:42:11  INFO      __main__  Starting COD monitor | brands=['VAMA', 'TMC', 'AJMAL', 'BBB', 'PTS'] | workers=5 | dry_run=False
+2026-04-16 14:50:38  INFO      __main__  Starting COD monitor | brands=['VAMA', 'TMC', 'AJMAL', 'BBB', 'PTS'] | workers=5 | dry_run=True
+2026-04-16 14:50:47  INFO      monitor  [VAMA] Products checked: 4  |  alerts triggered: 2
+2026-04-16 14:50:47  WARNING   monitor  [VAMA] These whitelisted products had no data (or below min_orders): [8622333100210, 8715135189170, 8740073111730, 8570090062002, 8657193566386]
+2026-04-16 14:50:47  INFO      __main__  Completed brand: VAMA
+2026-04-16 14:50:57  INFO      monitor  [PTS] Products checked: 3  |  alerts triggered: 0
+2026-04-16 14:50:57  WARNING   monitor  [PTS] These whitelisted products had no data (or below min_orders): [8047927558419, 8726032023827, 8726032023827, 8047927492883, 9992039465235]
+2026-04-16 14:50:57  INFO      __main__  Completed brand: PTS
+2026-04-16 14:51:04  INFO      monitor  [BBB] Products checked: 5  |  alerts triggered: 0
+2026-04-16 14:51:04  WARNING   monitor  [BBB] These whitelisted products had no data (or below min_orders): [9870268498215, 9996616466727, 9863098564903, 9946307690791, 9863094862119]
+2026-04-16 14:51:04  INFO      __main__  Completed brand: BBB
+2026-04-16 14:51:04  INFO      monitor  [AJMAL] Products checked: 2  |  alerts triggered: 0
+2026-04-16 14:51:04  WARNING   monitor  [AJMAL] These whitelisted products had no data (or below min_orders): [8048126820522, 8058959921322, 8010225516714, 8308792164522, 8010225451178]
+2026-04-16 14:51:04  INFO      __main__  Completed brand: AJMAL
+2026-04-16 14:51:17  INFO      monitor  [TMC] Products checked: 4  |  alerts triggered: 0
+2026-04-16 14:51:17  WARNING   monitor  [TMC] These whitelisted products had no data (or below min_orders): [8417496367300, 8384621805764, 8374355493060, 8384622067908, 8376454316228]
+2026-04-16 14:51:17  INFO      __main__  Completed brand: TMC
+2026-04-16 14:51:17  INFO      __main__  Dry-run mode: notifications suppressed.
+2026-04-16 14:51:17  INFO      __main__  Monitor run complete.
+2026-04-16 14:57:10  INFO      __main__  Starting COD monitor | brands=['VAMA', 'TMC', 'AJMAL', 'BBB', 'PTS'] | workers=5 | dry_run=False
+2026-04-16 14:57:22  ERROR     db  DB connection failed for mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com/BBB: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-04-16 14:57:22  ERROR     db  DB connection failed for mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com/AJMAL: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-04-16 14:57:22  ERROR     db  DB connection failed for mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com/PTS: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-04-16 14:57:22  ERROR     db  DB connection failed for mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com/TMC: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-04-16 14:57:22  ERROR     db  DB connection failed for mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com/VAMA: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-04-16 14:57:22  ERROR     monitor  [BBB] Processing failed: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-04-16 14:57:22  ERROR     monitor  [AJMAL] Processing failed: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-04-16 14:57:22  ERROR     monitor  [PTS] Processing failed: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-04-16 14:57:22  ERROR     monitor  [TMC] Processing failed: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-04-16 14:57:22  ERROR     monitor  [VAMA] Processing failed: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-04-16 14:57:22  INFO      __main__  Completed brand: BBB
+2026-04-16 14:57:22  INFO      __main__  Completed brand: AJMAL
+2026-04-16 14:57:22  INFO      __main__  Completed brand: PTS
+2026-04-16 14:57:22  INFO      __main__  Completed brand: TMC
+2026-04-16 14:57:22  INFO      __main__  Completed brand: VAMA
+2026-04-16 14:57:22  INFO      __main__  No alerts triggered — skipping Slack/email notifications.
+2026-04-16 14:57:22  WARNING   __main__  5 brand(s) encountered errors.
+2026-04-16 15:00:56  INFO      __main__  Starting COD monitor | brands=['VAMA', 'TMC', 'AJMAL', 'BBB', 'PTS'] | workers=5 | dry_run=False
+2026-04-16 15:01:02  INFO      monitor  [BBB] Overall -> today=49.6% baseline=49.4% delta=+0.3%
+2026-04-16 15:01:02  INFO      monitor  [PTS] Overall -> today=46.9% baseline=42.1% delta=+4.8%
+2026-04-16 15:01:02  INFO      monitor  [AJMAL] Overall -> today=36.3% baseline=32.3% delta=+4.0%
+2026-04-16 15:06:03  INFO      __main__  Starting COD monitor | brands=['VAMA', 'TMC', 'AJMAL', 'BBB', 'PTS'] | workers=5 | dry_run=False
+2026-04-16 15:06:33  INFO      __main__  Starting COD monitor | brands=['VAMA', 'TMC', 'AJMAL', 'BBB', 'PTS'] | workers=5 | dry_run=False
+2026-04-16 15:06:33  INFO      monitor  [PTS] Overall -> today=46.9% baseline=42.1% delta=+4.8%
+2026-04-16 15:06:34  INFO      monitor  [BBB] Overall -> today=49.6% baseline=49.4% delta=+0.3%
+2026-04-16 15:06:34  INFO      monitor  [AJMAL] Overall -> today=36.3% baseline=32.3% delta=+4.0%
+2026-04-16 15:06:34  INFO      monitor  [TMC] Overall -> today=1.5% baseline=0.3% delta=+1.2%
+2026-04-16 15:06:34  INFO      monitor  [VAMA] Overall -> today=54.0% baseline=46.9% delta=+7.1%
+2026-04-16 15:06:38  INFO      monitor  [VAMA] Products checked: 4 | alerts triggered: 1
+2026-04-16 15:06:38  WARNING   monitor  [VAMA] These whitelisted products had no data (or were below min_orders): [8657193566386]
+2026-04-16 15:06:38  INFO      __main__  Completed brand: VAMA
+2026-04-16 15:06:47  INFO      monitor  [PTS] Products checked: 3 | alerts triggered: 0
+2026-04-16 15:06:47  WARNING   monitor  [PTS] These whitelisted products had no data (or were below min_orders): [9992039465235]
+2026-04-16 15:06:47  INFO      __main__  Completed brand: PTS
+2026-04-16 15:06:53  INFO      monitor  [BBB] Products checked: 5 | alerts triggered: 0
+2026-04-16 15:06:53  INFO      __main__  Completed brand: BBB
+2026-04-16 15:06:54  INFO      monitor  [AJMAL] Products checked: 2 | alerts triggered: 0
+2026-04-16 15:06:54  WARNING   monitor  [AJMAL] These whitelisted products had no data (or were below min_orders): [8058959921322, 8010225516714, 8010225451178]
+2026-04-16 15:06:55  INFO      __main__  Completed brand: AJMAL
+2026-04-16 15:07:08  INFO      monitor  [TMC] Products checked: 4 | alerts triggered: 0
+2026-04-16 15:07:08  WARNING   monitor  [TMC] These whitelisted products had no data (or were below min_orders): [8384622067908]
+2026-04-16 15:07:08  INFO      __main__  Completed brand: TMC
+2026-04-16 15:07:08  INFO      __main__  Sending alerts (4 total)...
+2026-04-16 15:07:08  INFO      __main__  Monitor run complete.

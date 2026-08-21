@@ -46,24 +46,24 @@ ALERT_ENGINE_COD_MONITOR_URL = os.getenv(
 )
 
 BRANDS = {
-    "PTS": {
+    "VAMA": {
         "db": {
             "host":     DB_HOST,
             "port":     DB_PORT,
             "user":     DB_USER,
             "password": DB_PASSWORD,
-            "database": "PTS",
+            "database": "VAMA",
         },
         "thresholds": {
-            "overall": 3.0,
-            "product": 10.0,
+            "overall": 7.0,
+            "product": 11.0,
         },
         "product_min_orders": 20,
-        "product_ids": [10097371775251,
-                        8047927558419,
-                        8047927558419,
-                        8726032023827,
-                        8047927558419],  # add your PTS product IDs here
+        "product_ids": [8622333100210,
+                        8715135189170,
+                        8740073111730,
+                        8570090062002,
+                        8657193566386],  # add your VAMA product IDs here
     },
 
     "TMC": {
@@ -75,15 +75,15 @@ BRANDS = {
             "database": "TMC",
         },
         "thresholds": {
-            "overall": 3.0,
-            "product": 10.0,
+            "overall": 7.0,
+            "product": 11.0,
         },
         "product_min_orders": 20,
         "product_ids": [8417496367300,
                         8384621805764,
                         8374355493060,
-                        7207918698692,
-                        7207918895300],  # add your TMC product IDs here
+                        8384622067908,
+                        8376454316228],  # add your TMC product IDs here
     },
 
     "AJMAL": {
@@ -95,15 +95,15 @@ BRANDS = {
             "database": "AJMAL",
         },
         "thresholds": {
-            "overall": 3.0,
-            "product": 10.0,
+            "overall": 7.0,
+            "product": 11.0,
         },
         "product_min_orders": 20,
-        "product_ids": [8058959921322,
-                        8048126820522,
+        "product_ids": [8048126820522,
+                        8058959921322,
                         8010225516714,
-                        7987789889706,
-                        8308792164522],  # add your AJMAL product IDs here
+                        8308792164522,
+                        8010225451178],  # add your AJMAL product IDs here
     },
 
     "BBB": {
@@ -115,35 +115,35 @@ BRANDS = {
             "database": "BBB",
         },
         "thresholds": {
-            "overall": 3.0,
-            "product": 10.0,
+            "overall": 7.0,
+            "product": 11.0,
         },
         "product_min_orders": 20,
          "product_ids": [9870268498215,
                          9996616466727,
                          9863098564903,
                          9946307690791,
-                         9870267023655],  # add your BBB product IDs here
+                         9863094862119],  # add your BBB product IDs here
     },
 
-    "VAMA": {
+    "PTS": {
          "db": {
             "host":     DB_HOST,
             "port":     DB_PORT,
             "user":     DB_USER,
             "password": DB_PASSWORD,
-            "database": "VAMA",
+            "database": "PTS",
         },
         "thresholds": {
-            "overall": 3.0,
-            "product": 10.0,
+            "overall": 7.0,
+            "product": 11.0,
         },
         "product_min_orders": 20,
-        "product_ids": [8622333100210,
-                        8715135189170,
-                        8740073111730,
-                        8570090062002,
-                        8657193566386],  # add your VAMA product IDs here
+        "product_ids": [8047927558419,
+                        8726032023827,
+                        8726032023827,
+                        8047927492883,
+                        9992039465235],  # add your PTS product IDs here
     },
 }
 

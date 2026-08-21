@@ -2,45 +2,51 @@
 monitor.py - Core monitoring engine.
 
 Per brand:
-  1. Overall DoD  -> overall_summary       -> alert if |delta| > thresholds["overall"]
-  2. Product DoD  -> shopify_orders        -> alert if |delta| > thresholds["product"]
-                    only runs if product_ids whitelist is non-empty
-                    product name pulled from line_item column
+    1. Overall baseline  -> overall_summary -> alert if COD spike > thresholds["overall"]
+    2. Product baseline  -> shopify_orders  -> alert if COD spike > thresholds["product"]
+       only runs if product_ids whitelist is non-empty
+       product name pulled from line_item column
 """
 
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
 from typing import Any
 
 from db import get_connection, run_query
-from queries import OVERALL_DOD_QUERY, product_dod_query
+from queries import OVERALL_DOD_QUERY, product_baseline_query
 
 logger = logging.getLogger(__name__)
 
-TODAY = date.today().strftime("%Y-%m-%d")
-YESTERDAY = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
+
+def _fmt_delta(delta: float | None) -> str:
+    if delta is None:
+        return "N/A"
+    sign = "+" if delta > 0 else ""
+    return f"{sign}{delta}%"
 
 
 def _overall_alert(row: dict, threshold: float, brand: str) -> dict | None:
     delta = row.get("delta_cod_pct")
     if delta is None:
         return None
-    if abs(delta) > threshold:
-        sign = "+" if delta > 0 else ""
-        emoji = "UP" if delta > 0 else "DOWN"
+
+    if delta > threshold:
+        prepaid_delta = row.get("delta_prepaid_pct")
+        partial_delta = row.get("delta_partial_pct")
         return {
             "brand": brand,
             "level": "overall",
-            "emoji": emoji,
+            "emoji": "SPIKE",
             "delta": delta,
             "today_cod_pct": row.get("today_cod_pct"),
-            "yesterday_cod_pct": row.get("yesterday_cod_pct"),
+            "baseline_cod_pct": row.get("baseline_cod_pct"),
             "today_total_orders": row.get("today_total_orders"),
             "message": (
-                f"{emoji} Overall COD change: {sign}{delta}% "
-                f"(today {row.get('today_cod_pct')}% <- yesterday {row.get('yesterday_cod_pct')}% "
+                f"Overall COD spike: +{delta}% "
+                f"(today {row.get('today_cod_pct')}% vs 7d avg {row.get('baseline_cod_pct')}% "
+                f"| prepaid delta {_fmt_delta(prepaid_delta)} "
+                f"| partial delta {_fmt_delta(partial_delta)} "
                 f"| orders today: {row.get('today_total_orders')})"
             ),
         }
@@ -53,42 +59,41 @@ def _product_alerts(rows: list[dict], threshold: float, brand: str) -> list[dict
         delta = row.get("delta_cod_pct")
         if delta is None:
             continue
-        if abs(delta) > threshold:
-            sign = "+" if delta > 0 else ""
-            emoji = "UP" if delta > 0 else "DOWN"
+
+        if delta > threshold:
             product_id = row.get("product_id", "unknown")
             product_name = row.get("product_name") or "-"
+            prepaid_delta = row.get("delta_prepaid_pct")
+            partial_delta = row.get("delta_partial_pct")
 
-            alerts.append({
-                "brand": brand,
-                "level": "product",
-                "product_id": product_id,
-                "product_name": product_name,
-                "emoji": emoji,
-                "delta": delta,
-                "today_cod_pct": row.get("today_cod_pct"),
-                "yesterday_cod_pct": row.get("yesterday_cod_pct"),
-                "today_total_orders": row.get("today_total_orders"),
-                "message": (
-                    f"{emoji} {product_name} (ID: {product_id}) | "
-                    f"Delta {sign}{delta}% | "
-                    f"today COD {row.get('today_cod_pct')}% <- "
-                    f"yesterday {row.get('yesterday_cod_pct')}% | "
-                    f"orders: {row.get('today_total_orders')}"
-                ),
-            })
+            alerts.append(
+                {
+                    "brand": brand,
+                    "level": "product",
+                    "product_id": product_id,
+                    "product_name": product_name,
+                    "emoji": "SPIKE",
+                    "delta": delta,
+                    "today_cod_pct": row.get("today_cod_pct"),
+                    "baseline_cod_pct": row.get("baseline_cod_pct"),
+                    "today_total_orders": row.get("today_total_orders"),
+                    "message": (
+                        f"{product_name} (ID: {product_id}) | "
+                        f"COD delta +{delta}% | "
+                        f"today COD {row.get('today_cod_pct')}% vs "
+                        f"7d avg {row.get('baseline_cod_pct')}% | "
+                        f"prepaid delta {_fmt_delta(prepaid_delta)} | "
+                        f"partial delta {_fmt_delta(partial_delta)} | "
+                        f"orders: {row.get('today_total_orders')}"
+                    ),
+                }
+            )
     return alerts
 
 
 def process_brand(brand_name: str, brand_cfg: dict) -> dict[str, Any]:
     """
     Run all checks for a single brand and return structured results.
-
-    Returns:
-        {
-            brand, status, overall_row,
-            product_rows, alerts, error
-        }
     """
     result: dict[str, Any] = {
         "brand": brand_name,
@@ -101,6 +106,7 @@ def process_brand(brand_name: str, brand_cfg: dict) -> dict[str, Any]:
 
     thresholds = brand_cfg["thresholds"]
     min_orders = brand_cfg.get("product_min_orders", 20)
+    min_baseline_days = brand_cfg.get("baseline_min_days", 4)
     product_ids = brand_cfg.get("product_ids", [])
 
     try:
@@ -113,24 +119,20 @@ def process_brand(brand_name: str, brand_cfg: dict) -> dict[str, Any]:
                 if alert:
                     result["alerts"].append(alert)
                 logger.info(
-                    "[%s] Overall -> today=%.1f%% yesterday=%.1f%% delta=%+.1f%%",
+                    "[%s] Overall -> today=%.1f%% baseline=%.1f%% delta=%+.1f%%",
                     brand_name,
                     row.get("today_cod_pct") or 0,
-                    row.get("yesterday_cod_pct") or 0,
+                    row.get("baseline_cod_pct") or 0,
                     row.get("delta_cod_pct") or 0,
                 )
             else:
-                logger.warning("[%s] No overall_summary data for today/yesterday", brand_name)
+                logger.warning("[%s] No overall_summary data for baseline comparison", brand_name)
 
             if not product_ids:
                 logger.info("[%s] No product_ids configured - skipping product-level check", brand_name)
             else:
-                sql = product_dod_query(product_ids)
-                params = (
-                    (TODAY, YESTERDAY)
-                    + tuple(product_ids)
-                    + (min_orders, TODAY, YESTERDAY)
-                )
+                sql = product_baseline_query(product_ids)
+                params = tuple(product_ids) + (min_orders, min_baseline_days)
 
                 product_rows = run_query(conn, sql, params)
                 result["product_rows"] = product_rows
@@ -146,10 +148,10 @@ def process_brand(brand_name: str, brand_cfg: dict) -> dict[str, Any]:
                 )
 
                 found_ids = {str(r["product_id"]) for r in product_rows}
-                missing = [pid for pid in product_ids if pid not in found_ids]
+                missing = [pid for pid in product_ids if str(pid) not in found_ids]
                 if missing:
                     logger.warning(
-                        "[%s] These whitelisted products had no data (or below min_orders): %s",
+                        "[%s] These whitelisted products had no data (or were below min_orders): %s",
                         brand_name,
                         missing,
                     )

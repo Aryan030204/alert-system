@@ -1,0 +1,9 @@
+2026-08-21 11:51:19  INFO      __main__  Starting COD monitor | brands=['PTS'] | workers=5 | dry_run=True
+2026-08-21 11:51:19  ERROR     db  DB connection failed for mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com/PTS: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-08-21 11:51:19  ERROR     monitor  [PTS] Processing failed: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-08-21 11:51:19  INFO      __main__  Completed brand: PTS
+2026-08-21 11:51:19  INFO      __main__  JSON output mode enabled; console report suppressed.
+2026-08-21 11:51:19  INFO      __main__  COD run payload prepared: {"run_date": "2026-08-21", "brand_count": 1, "total_alerts": 0, "total_errors": 1, "dry_run": true}
+2026-08-21 11:51:19  INFO      __main__  JSON output mode: alert engine POST suppressed (payload returned via stdout).
+2026-08-21 11:51:19  INFO      __main__  Dry-run mode: notifications suppressed.
+2026-08-21 11:51:19  WARNING   __main__  1 brand(s) encountered errors.

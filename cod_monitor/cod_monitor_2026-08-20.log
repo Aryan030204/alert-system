@@ -1,0 +1,18 @@
+2026-08-20 15:44:03  INFO      __main__  Starting COD monitor | brands=['VAMA', 'TMC', 'AJMAL', 'BBB', 'PTS'] | workers=5 | dry_run=False
+2026-08-20 15:44:04  ERROR     db  DB connection failed for mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com/AJMAL: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-08-20 15:44:04  ERROR     db  DB connection failed for mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com/PTS: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-08-20 15:44:04  ERROR     db  DB connection failed for mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com/BBB: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-08-20 15:44:04  ERROR     db  DB connection failed for mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com/VAMA: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-08-20 15:44:04  ERROR     db  DB connection failed for mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com/TMC: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-08-20 15:44:04  ERROR     monitor  [AJMAL] Processing failed: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-08-20 15:44:04  ERROR     monitor  [PTS] Processing failed: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-08-20 15:44:04  ERROR     monitor  [BBB] Processing failed: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-08-20 15:44:04  ERROR     monitor  [VAMA] Processing failed: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-08-20 15:44:04  ERROR     monitor  [TMC] Processing failed: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-08-20 15:44:04  INFO      __main__  Completed brand: AJMAL
+2026-08-20 15:44:04  INFO      __main__  Completed brand: PTS
+2026-08-20 15:44:04  INFO      __main__  Completed brand: BBB
+2026-08-20 15:44:04  INFO      __main__  Completed brand: VAMA
+2026-08-20 15:44:04  INFO      __main__  Completed brand: TMC
+2026-08-20 15:44:04  INFO      __main__  No alerts triggered - skipping Slack/email notifications.
+2026-08-20 15:44:04  WARNING   __main__  5 brand(s) encountered errors.

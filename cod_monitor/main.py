@@ -1,16 +1,15 @@
 """
-main.py — Entry point for the COD vs Prepaid monitoring system.
+main.py - Entry point for the COD vs Prepaid monitoring system.
 
 Usage:
-    python main.py                  # run for all brands
-    python main.py --brands TMC     # run for specific brand(s)
-    python main.py --dry-run        # skip alerts, just print results
-
-Scheduling (add to crontab):
-    0 9 * * * /usr/bin/python3 /path/to/cod_monitor/main.py >> /var/log/cod_monitor.log 2>&1
+    python main.py
+    python main.py --brands TMC
+    python main.py --dry-run
+    python main.py --json-output    # emit JSON payload to stdout for the Node alert engine
 """
 
 from __future__ import annotations
+
 import argparse
 import json
 import logging
@@ -19,35 +18,39 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime
 from decimal import Decimal
 
-from config import (
-    ALERT_ENGINE_COD_MONITOR_URL,
-    BRANDS,
-    SLACK_WEBHOOK_URL,
-    EMAIL_CONFIG,
-    MAX_WORKERS,
-)
-from monitor import process_brand
 from alerts import (
     print_console_report,
     send_alert_engine_payload,
-    send_slack_alert,
     send_email_alert,
+    send_slack_alert,
 )
+from config import (
+    ALERT_ENGINE_COD_MONITOR_URL,
+    BRANDS,
+    EMAIL_CONFIG,
+    MAX_WORKERS,
+    SLACK_WEBHOOK_URL,
+)
+from monitor import process_brand
 
-# ── Logging setup ─────────────────────────────────────────────────────────────
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+# Logging always goes to stderr (+ file) so stdout stays clean for --json-output.
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[
         logging.StreamHandler(sys.stderr),
-        logging.FileHandler(f"cod_monitor_{date.today()}.log"),
+        logging.FileHandler(f"cod_monitor_{date.today()}.log", encoding="utf-8"),
     ],
 )
 logger = logging.getLogger(__name__)
 
 
-# ── CLI args ──────────────────────────────────────────────────────────────────
 def parse_args():
     parser = argparse.ArgumentParser(description="COD vs Prepaid DoD Monitor")
     parser.add_argument(
@@ -68,7 +71,6 @@ def parse_args():
     return parser.parse_args()
 
 
-# ── Parallel brand processing ─────────────────────────────────────────────────
 def run_all_brands(brand_keys: list[str]) -> list[dict]:
     """
     Process all brands in parallel using ThreadPoolExecutor.
@@ -91,15 +93,14 @@ def run_all_brands(brand_keys: list[str]) -> list[dict]:
             except Exception as exc:  # noqa: BLE001
                 logger.error("Unexpected error for brand %s: %s", key, exc)
                 results_map[key] = {
-                    "brand":        key,
-                    "status":       "error",
-                    "overall_row":  None,
+                    "brand": key,
+                    "status": "error",
+                    "overall_row": None,
                     "product_rows": [],
-                    "alerts":       [],
-                    "error":        str(exc),
+                    "alerts": [],
+                    "error": str(exc),
                 }
 
-    # Return in original order
     return [results_map[k] for k in brand_keys if k in results_map]
 
 
@@ -147,11 +148,9 @@ def _json_safe(value):
     return value
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     args = parse_args()
 
-    # Determine which brands to run
     if args.brands:
         unknown = [b for b in args.brands if b not in BRANDS]
         if unknown:
@@ -163,13 +162,13 @@ def main():
 
     logger.info(
         "Starting COD monitor | brands=%s | workers=%d | dry_run=%s",
-        brand_keys, MAX_WORKERS, args.dry_run,
+        brand_keys,
+        MAX_WORKERS,
+        args.dry_run,
     )
 
-    # Run all brands (parallel)
     brand_results = run_all_brands(brand_keys)
 
-    # ── Console output (always) ───────────────────────────────────────────────
     run_payload = build_run_payload(brand_results, args.dry_run)
     if args.json_output:
         logger.info("JSON output mode enabled; console report suppressed.")
@@ -187,13 +186,12 @@ def main():
     )
 
     if args.json_output:
-        logger.info("JSON output mode: alert engine POST suppressed.")
+        logger.info("JSON output mode: alert engine POST suppressed (payload returned via stdout).")
     elif args.dry_run:
         logger.info("Dry-run mode: alert engine payload suppressed.")
     else:
         send_alert_engine_payload(run_payload, ALERT_ENGINE_COD_MONITOR_URL)
 
-    # ── Notifications (skip if dry-run) ──────────────────────────────────────
     if not args.dry_run and not args.json_output:
         total_alerts = sum(len(r["alerts"]) for r in brand_results)
 
@@ -202,13 +200,12 @@ def main():
             send_slack_alert(brand_results, SLACK_WEBHOOK_URL)
             send_email_alert(brand_results, EMAIL_CONFIG)
         else:
-            logger.info("No alerts triggered — skipping Slack/email notifications.")
+            logger.info("No alerts triggered - skipping Slack/email notifications.")
     elif args.json_output and not args.dry_run:
         logger.info("JSON output mode: local Slack/email notifications suppressed.")
     else:
         logger.info("Dry-run mode: notifications suppressed.")
 
-    # Exit with code 1 if any brand errored
     errors = [r for r in brand_results if r["status"] == "error"]
     if errors:
         logger.warning("%d brand(s) encountered errors.", len(errors))
