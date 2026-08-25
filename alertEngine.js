@@ -665,13 +665,22 @@ async function getLastAlertForState(alertId, state) {
 --------------------------------------------------------*/
 async function checkPerformanceStateCooldown(alertId, state) {
   const cooldownHours = PERFORMANCE_STATE_COOLDOWN_HOURS[state];
-  if (!cooldownHours) return false;
+  if (!cooldownHours) {
+    return { onCooldown: false, cooldownHours: null, hoursSince: null, lastFiredAt: null };
+  }
 
   const lastAlert = await getLastAlertForState(alertId, state);
-  if (!lastAlert) return false;
+  if (!lastAlert) {
+    return { onCooldown: false, cooldownHours, hoursSince: null, lastFiredAt: null };
+  }
 
   const hoursSince = (Date.now() - new Date(lastAlert.triggered_at).getTime()) / 3600000;
-  return hoursSince < cooldownHours;
+  return {
+    onCooldown: hoursSince < cooldownHours,
+    cooldownHours,
+    hoursSince,
+    lastFiredAt: lastAlert.triggered_at,
+  };
 }
 
 async function evaluateEscalation(rule, previousState, newState, dropPercent) {
@@ -1037,10 +1046,14 @@ async function sendPushWebhook(payload) {
       return;
     }
 
+    const body = JSON.stringify(payload);
+    console.log(`📦 Push Webhook Request → ${destinationUrl}`);
+    console.log(`📦 Push Webhook Request Body: ${body}`);
+
     const response = await fetch(destinationUrl, {
       method: "POST",
       headers: headers,
-      body: JSON.stringify(payload),
+      body,
     });
 
     if (!response.ok) {
@@ -1697,12 +1710,25 @@ async function processIncomingEvent(event) {
     console.log(
       `   📌 Type: ${rule.metric_type} | Metric: ${rule.metric_name}`,
     );
-    console.log(
-      `   📌 Threshold: ${rule.threshold_type} ${rule.threshold_value}%`,
-    );
-    console.log(
-      `   📌 Lookback: ${rule.lookback_days || 7} days | Cooldown: ${rule.cooldown_minutes}m`,
-    );
+    if (rule.metric_name === "performance") {
+      console.log(
+        `   📌 [PERFORMANCE] Fixed severity buckets: CRITICAL 0-39 | ALMOST CRITICAL 40-46 | NEEDS IMMEDIATE ATTENTION 47-54 | NEEDS ATTENTION 55-59 | NORMAL 60+`,
+      );
+      console.log(
+        `   📌 [PERFORMANCE] Re-fire cadence: NEEDS ATTENTION every 72h | NEEDS IMMEDIATE ATTENTION every 48h | ALMOST CRITICAL every 24h | CRITICAL every 12h`,
+      );
+      console.log(
+        `   📌 [PERFORMANCE] (rule.threshold_value=${rule.threshold_value}, rule.critical_threshold=${rule.critical_threshold}, rule.cooldown_minutes=${rule.cooldown_minutes} are DEPRECATED for this metric and not used below)`,
+      );
+      console.log(`   📌 Lookback: ${rule.lookback_days || 7} days`);
+    } else {
+      console.log(
+        `   📌 Threshold: ${rule.threshold_type} ${rule.threshold_value}%`,
+      );
+      console.log(
+        `   📌 Lookback: ${rule.lookback_days || 7} days | Cooldown: ${rule.cooldown_minutes}m`,
+      );
+    }
 
     const metricValue = await computeMetric(rule, event);
 
@@ -1928,24 +1954,50 @@ async function processIncomingEvent(event) {
     // 1️⃣a Performance rules: dedicated 5-state severity model, bypassing the
     // generic hasStateChanged/escalation/cooldown machinery entirely.
     if (rule.metric_name === "performance") {
+      const matchedBucket = PERFORMANCE_STATE_BUCKETS.find((b) => b.state === newState);
+      const bucketLabel = matchedBucket
+        ? `${matchedBucket.min}-${matchedBucket.max === Infinity ? "∞" : matchedBucket.max}`
+        : "unknown";
+      console.log(
+        `   🧮 [PERFORMANCE] value=${Number(metricValue).toFixed(2)} → bucket "${newState}" (${bucketLabel})`,
+      );
+
       const prevRank = PERFORMANCE_STATE_SEVERITY_RANK[previousState] ?? 0;
       const newRank = PERFORMANCE_STATE_SEVERITY_RANK[newState] ?? 0;
       const isDowngradeOrSame = newRank >= prevRank;
       const eligibleToFire = newState !== "NORMAL" && isDowngradeOrSame;
 
+      console.log(
+        `   🧮 [PERFORMANCE] severity rank: previous="${previousState}"(${prevRank}) → new="${newState}"(${newRank}) | ${
+          newRank > prevRank ? "DOWNGRADE" : newRank === prevRank ? "SAME" : "UPGRADE"
+        }`,
+      );
+
       let shouldFire = false;
-      if (eligibleToFire) {
-        const onCooldown = await checkPerformanceStateCooldown(rule.id, newState);
-        shouldFire = !onCooldown;
-        if (onCooldown) {
+      let cooldownInfo = null;
+
+      if (!eligibleToFire) {
+        console.log(
+          newState === "NORMAL"
+            ? `   ✅ [PERFORMANCE] New state is NORMAL — recovery alerts are never sent for performance rules. current_state will still update.`
+            : `   ⬆️  [PERFORMANCE] Upgrade detected (${previousState} → ${newState}) — no fire for improvements, only downgrades or same-state repeats.`,
+        );
+      } else {
+        cooldownInfo = await checkPerformanceStateCooldown(rule.id, newState);
+        shouldFire = !cooldownInfo.onCooldown;
+        if (cooldownInfo.onCooldown) {
           console.log(
-            `   ❄️  Performance state cooldown active for "${newState}" — skipping fire.`,
+            `   ❄️  [PERFORMANCE] Cooldown ACTIVE for "${newState}": last fired ${cooldownInfo.hoursSince.toFixed(2)}h ago, requires ${cooldownInfo.cooldownHours}h (last_fired_at=${new Date(cooldownInfo.lastFiredAt).toISOString()}). Skipping fire.`,
+          );
+        } else if (cooldownInfo.lastFiredAt) {
+          console.log(
+            `   ✅ [PERFORMANCE] Cooldown CLEARED for "${newState}": last fired ${cooldownInfo.hoursSince.toFixed(2)}h ago, required ${cooldownInfo.cooldownHours}h. Eligible to fire.`,
+          );
+        } else {
+          console.log(
+            `   ✅ [PERFORMANCE] No prior alert_history entry for "${newState}" on this rule — first fire, no cooldown to check.`,
           );
         }
-      } else {
-        console.log(
-          `   ✅ Performance state is NORMAL or an upgrade (${previousState} → ${newState}) — no fire by design.`,
-        );
       }
 
       // Quiet hours still suppress firing, even CRITICAL.
@@ -1960,23 +2012,26 @@ async function processIncomingEvent(event) {
           qs < qe
             ? currentISTHour >= qs && currentISTHour < qe
             : currentISTHour >= qs || currentISTHour < qe;
+        console.log(
+          `   🕒 [PERFORMANCE] Quiet hours window ${qs}-${qe} IST | current hour ${currentISTHour} | ${inQuiet ? "INSIDE window — suppressing" : "outside window — not suppressed"}`,
+        );
         if (inQuiet) {
-          console.log(
-            `   💤 Quiet Hours (${qs}-${qe}) ACTIVE. Performance alert suppressed.`,
-          );
           shouldFire = false;
         }
       }
 
+      console.log(
+        `   🏁 [PERFORMANCE] Final decision: ${shouldFire ? "FIRE" : "NO FIRE"} (state=${newState})`,
+      );
+
       if (shouldFire) {
-        const bucket = PERFORMANCE_STATE_BUCKETS.find((b) => b.state === newState);
-        event.overrideThresholdDisplay = bucket
-          ? `${newState} range: ${bucket.min}–${bucket.max}`
+        event.overrideThresholdDisplay = matchedBucket
+          ? `${newState} range: ${matchedBucket.min}–${matchedBucket.max}`
           : newState;
 
         const dispatchTarget = resolveAlertDispatchTarget(rule);
-        console.log(`   🎯 Dispatch target: ${dispatchTarget}`);
-        console.log(`   🚨 FIRE ALERT! [${previousState} → ${newState}] Sending notification...`);
+        console.log(`   🎯 [PERFORMANCE] Dispatch target: ${dispatchTarget}`);
+        console.log(`   🚨 [PERFORMANCE] FIRE ALERT! [${previousState} → ${newState}] Sending notification...`);
 
         if (dispatchTarget === ALERT_DISPATCH_TARGETS.DSL_ENGINE) {
           await publishDslTriggerEvent({
@@ -2005,9 +2060,10 @@ async function processIncomingEvent(event) {
       }
 
       if (newState !== previousState) {
+        console.log(`   💾 [PERFORMANCE] current_state updated: ${previousState} → ${newState}`);
         await updateRuleState(rule._id, newState);
       } else {
-        console.log(`   💾 State unchanged (${newState}); current_state left as-is.`);
+        console.log(`   💾 [PERFORMANCE] current_state unchanged (${newState}).`);
       }
 
       continue;
