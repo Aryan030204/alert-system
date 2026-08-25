@@ -23,6 +23,45 @@ const ALERT_DISPATCH_TARGETS = {
   DSL_ENGINE: "dsl_engine",
 };
 
+/* -------------------------------------------------------
+   Performance-metric severity buckets (metric_name === "performance" ONLY).
+   Fixed globally — NOT read from rule.threshold_value / rule.critical_threshold.
+   Those two fields are deprecated for performance rules specifically; every
+   other metric still uses them exactly as before.
+--------------------------------------------------------*/
+const PERFORMANCE_STATE_BUCKETS = [
+  { state: "CRITICAL", min: 0, max: 39 },
+  { state: "ALMOST CRITICAL", min: 40, max: 46 },
+  { state: "NEEDS IMMEDIATE ATTENTION", min: 47, max: 54 },
+  { state: "NEEDS ATTENTION", min: 55, max: 59 },
+  { state: "NORMAL", min: 60, max: Infinity },
+];
+
+const PERFORMANCE_STATE_SEVERITY_RANK = {
+  NORMAL: 0,
+  "NEEDS ATTENTION": 1,
+  "NEEDS IMMEDIATE ATTENTION": 2,
+  "ALMOST CRITICAL": 3,
+  CRITICAL: 4,
+};
+
+// Recurring re-fire cadence per state while a performance rule stays stuck
+// there. rule.cooldown_minutes is NOT used for performance rules.
+const PERFORMANCE_STATE_COOLDOWN_HOURS = {
+  "NEEDS ATTENTION": 72,
+  "NEEDS IMMEDIATE ATTENTION": 48,
+  "ALMOST CRITICAL": 24,
+  CRITICAL: 12,
+};
+
+function determinePerformanceState(metricValue) {
+  const val = Number(metricValue);
+  for (const bucket of PERFORMANCE_STATE_BUCKETS) {
+    if (val >= bucket.min && val <= bucket.max) return bucket.state;
+  }
+  return "NORMAL";
+}
+
 const ESCALATION_STEP = Number(process.env.ESCALATION_STEP);
 const EFFECTIVE_ESCALATION_STEP =
   Number.isFinite(ESCALATION_STEP) && ESCALATION_STEP > 0
@@ -617,6 +656,22 @@ async function getLastAlertForState(alertId, state) {
     console.error("🔥 Error fetching last state alert history:", err.message);
     return null;
   }
+}
+
+/* -------------------------------------------------------
+   Performance-metric per-state re-fire cooldown.
+   Returns true if the given state fired within its allotted cooldown window
+   (PERFORMANCE_STATE_COOLDOWN_HOURS), i.e. it should NOT fire again yet.
+--------------------------------------------------------*/
+async function checkPerformanceStateCooldown(alertId, state) {
+  const cooldownHours = PERFORMANCE_STATE_COOLDOWN_HOURS[state];
+  if (!cooldownHours) return false;
+
+  const lastAlert = await getLastAlertForState(alertId, state);
+  if (!lastAlert) return false;
+
+  const hoursSince = (Date.now() - new Date(lastAlert.triggered_at).getTime()) / 3600000;
+  return hoursSince < cooldownHours;
 }
 
 async function evaluateEscalation(rule, previousState, newState, dropPercent) {
@@ -1272,6 +1327,12 @@ async function evaluateThreshold(rule, metricValue, avgHistoric, dropPercent) {
    State Machine: Determine New State
 --------------------------------------------------------*/
 function determineNewState(rule, dropPercent, metricValue, event) {
+  // Performance rules use fixed severity buckets instead of threshold_value /
+  // critical_threshold — those two fields are deprecated for this metric only.
+  if (rule.metric_name === "performance") {
+    return determinePerformanceState(metricValue);
+  }
+
   const threshold = Number(rule.threshold_value);
   const criticalThreshold = Number(rule.critical_threshold);
   const hasCritical = !Number.isNaN(criticalThreshold) && criticalThreshold > 0;
@@ -1415,6 +1476,43 @@ function selectEmailTemplate(rule, previousState, newState) {
         "This metric has breached the critical threshold and requires immediate attention.",
       headerColor: "#dc2626",
       emoji: "🚨",
+      previousState,
+      newState,
+    };
+  }
+
+  // Performance-only intermediate severity states
+  if (newState === "NEEDS ATTENTION") {
+    return {
+      subjectTag: "Needs Attention",
+      bodyHeading: `Needs Attention — ${String(rule.name || metricLabel)}`,
+      bodySubtext: "Site speed has dipped into the Needs Attention range.",
+      headerColor: "#f59e0b",
+      emoji: "⚠️",
+      previousState,
+      newState,
+    };
+  }
+
+  if (newState === "NEEDS IMMEDIATE ATTENTION") {
+    return {
+      subjectTag: "Needs Immediate Attention",
+      bodyHeading: `Needs Immediate Attention — ${String(rule.name || metricLabel)}`,
+      bodySubtext: "Site speed has dropped into the Needs Immediate Attention range.",
+      headerColor: "#ea580c",
+      emoji: "🔶",
+      previousState,
+      newState,
+    };
+  }
+
+  if (newState === "ALMOST CRITICAL") {
+    return {
+      subjectTag: "Almost Critical",
+      bodyHeading: `Almost Critical — ${String(rule.name || metricLabel)}`,
+      bodySubtext: "Site speed is now Almost Critical and close to the critical floor.",
+      headerColor: "#e11d48",
+      emoji: "🔺",
       previousState,
       newState,
     };
@@ -1826,6 +1924,94 @@ async function processIncomingEvent(event) {
     const newState = determineNewState(rule, dropPercent, metricValue, event);
 
     console.log(`   🔄 State: ${previousState} → ${newState}`);
+
+    // 1️⃣a Performance rules: dedicated 5-state severity model, bypassing the
+    // generic hasStateChanged/escalation/cooldown machinery entirely.
+    if (rule.metric_name === "performance") {
+      const prevRank = PERFORMANCE_STATE_SEVERITY_RANK[previousState] ?? 0;
+      const newRank = PERFORMANCE_STATE_SEVERITY_RANK[newState] ?? 0;
+      const isDowngradeOrSame = newRank >= prevRank;
+      const eligibleToFire = newState !== "NORMAL" && isDowngradeOrSame;
+
+      let shouldFire = false;
+      if (eligibleToFire) {
+        const onCooldown = await checkPerformanceStateCooldown(rule.id, newState);
+        shouldFire = !onCooldown;
+        if (onCooldown) {
+          console.log(
+            `   ❄️  Performance state cooldown active for "${newState}" — skipping fire.`,
+          );
+        }
+      } else {
+        console.log(
+          `   ✅ Performance state is NORMAL or an upgrade (${previousState} → ${newState}) — no fire by design.`,
+        );
+      }
+
+      // Quiet hours still suppress firing, even CRITICAL.
+      if (
+        shouldFire &&
+        rule.quiet_hours_start !== undefined &&
+        rule.quiet_hours_end !== undefined
+      ) {
+        const qs = rule.quiet_hours_start;
+        const qe = rule.quiet_hours_end;
+        const inQuiet =
+          qs < qe
+            ? currentISTHour >= qs && currentISTHour < qe
+            : currentISTHour >= qs || currentISTHour < qe;
+        if (inQuiet) {
+          console.log(
+            `   💤 Quiet Hours (${qs}-${qe}) ACTIVE. Performance alert suppressed.`,
+          );
+          shouldFire = false;
+        }
+      }
+
+      if (shouldFire) {
+        const bucket = PERFORMANCE_STATE_BUCKETS.find((b) => b.state === newState);
+        event.overrideThresholdDisplay = bucket
+          ? `${newState} range: ${bucket.min}–${bucket.max}`
+          : newState;
+
+        const dispatchTarget = resolveAlertDispatchTarget(rule);
+        console.log(`   🎯 Dispatch target: ${dispatchTarget}`);
+        console.log(`   🚨 FIRE ALERT! [${previousState} → ${newState}] Sending notification...`);
+
+        if (dispatchTarget === ALERT_DISPATCH_TARGETS.DSL_ENGINE) {
+          await publishDslTriggerEvent({
+            rule,
+            event,
+            metricValue,
+            avgHistoric,
+            dropPercent,
+            alertHour: hourCutoff,
+            previousState,
+            newState,
+          });
+        } else {
+          await triggerAlert({
+            rule,
+            event,
+            metricValue,
+            avgHistoric,
+            dropPercent,
+            alertHour: hourCutoff,
+            previousState,
+            newState,
+            escalationInfo: { isEscalation: false },
+          });
+        }
+      }
+
+      if (newState !== previousState) {
+        await updateRuleState(rule._id, newState);
+      } else {
+        console.log(`   💾 State unchanged (${newState}); current_state left as-is.`);
+      }
+
+      continue;
+    }
 
     // 2️⃣ Check if state transition should fire an alert
     if (!hasStateChanged(previousState, newState)) {
