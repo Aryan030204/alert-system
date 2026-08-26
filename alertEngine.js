@@ -2309,50 +2309,57 @@ function buildCodAdditionalHTML(result) {
   return overallMetrics + productSection + configSection;
 }
 
-function buildCodEmailPayload(result, runDate) {
-  const overall = result.overall || {};
-  const firstAlert = Array.isArray(result.alerts) && result.alerts.length ? result.alerts[0] : null;
-  const currentValue = overall.today_cod_pct ?? firstAlert?.today_cod_pct ?? null;
-  const baselineValue = overall.baseline_cod_pct ?? firstAlert?.baseline_cod_pct ?? null;
-  const deltaValue = overall.delta_cod_pct ?? firstAlert?.delta ?? null;
-  const brand = String(result.brand || "").toUpperCase();
+function buildCodDigestEmail(eligibleResults, runDate) {
+  const brandSections = eligibleResults
+    .map((result) => {
+      const brand = String(result.brand || "").toUpperCase();
+      return `
+        <div style="margin-bottom:28px; padding-bottom:24px; border-bottom:1px solid #e5e7eb;">
+          <h2 style="margin:0 0 16px; font-size:18px; font-weight:700; color:#111827;">${escapeHtml(brand)}</h2>
+          ${buildCodAdditionalHTML(result)}
+        </div>
+      `;
+    })
+    .join("");
 
-  const event = {
-    brand,
-    date: runDate,
-    overrideMetricLabel: "COD %",
-    overrideCurrentValueLabel: "Current COD %",
-    overrideHistoricalLabel: "7-Day Avg COD %",
-    overrideDeltaLabel: "Delta vs 7d Avg",
-    overrideThresholdDisplay: `${result.thresholds?.overall ?? "N/A"}% overall / ${result.thresholds?.product ?? "N/A"}% product`,
-    additionalHTML: buildCodAdditionalHTML(result),
-  };
+  const brandCount = eligibleResults.length;
+  const brandLabel = brandCount === 1 ? "brand" : "brands";
+  const brandNames = eligibleResults.map((r) => String(r.brand || "").toUpperCase()).join(", ");
 
-  const syntheticRule = {
-    metric_name: "cod_pct",
-    threshold_type: "absolute",
-    threshold_value: result.thresholds?.overall ?? 0,
-    lookback_days: 1,
-    severity: "medium",
-  };
+  const subject = `[COD Monitor] Daily Report | ${runDate} | ${brandCount} ${brandLabel}: ${brandNames}`;
 
-  const templateInfo = {
-    bodyHeading: `COD alert for ${brand}`,
-    bodySubtext: "Cash on delivery mix moved beyond the configured monitor thresholds.",
-    headerColor: "#dc2626",
-    emoji: "⚠️",
-  };
+  const html = `
+  <html>
+  <body style="margin:0; padding:0; background:#f4f6fb; font-family:Arial, sans-serif;">
+    <div style="max-width:680px; margin:30px auto; background:#ffffff;
+      border-radius:12px; overflow:hidden; box-shadow:0 6px 25px rgba(0,0,0,0.08);">
 
-  const subject = `[COD Monitor] ${brand} | COD ${formatCodPercent(currentValue)} | Δ ${formatCodDelta(deltaValue)}`;
-  const html = generateEmailHTML(
-    event,
-    syntheticRule,
-    Number.isFinite(Number(currentValue)) ? Number(currentValue) : "N/A",
-    Number.isFinite(Number(baselineValue)) ? Number(baselineValue) : null,
-    Number.isFinite(Number(deltaValue)) ? Number(deltaValue) : null,
-    undefined,
-    templateInfo,
-  );
+      <div style="background:#dc2626; padding:26px 32px; color:#ffffff;">
+        <h2 style="margin:0; font-size:24px; font-weight:600;">⚠️ COD Monitor Daily Report</h2>
+        <p style="margin:6px 0 0; font-size:14px; opacity:0.9;">
+          Cash-on-delivery mix moved beyond configured thresholds for ${brandCount} ${brandLabel} on ${escapeHtml(runDate)}.
+        </p>
+      </div>
+
+      <div style="padding:30px; line-height:1.6; color:#374151;">
+        ${brandSections}
+        <p style="font-size:15px; color:#4b5563; margin-top:8px;">
+          Take a look at the latest activity on your dashboard for possible causes:
+          <a href="https://datum.trytechit.co/" style="color:#4f46e5; text-decoration:underline;">
+            https://datum.trytechit.co/
+          </a>
+        </p>
+      </div>
+
+      <div style="background:#f3f4f6; padding:14px; text-align:center;">
+        <span style="font-size:12px; color:#6b7280;">
+          © ${new Date().getFullYear()} Datum Inc.
+        </span>
+      </div>
+    </div>
+  </body>
+  </html>
+  `;
 
   return { subject, html };
 }
@@ -2431,35 +2438,41 @@ async function sendCodMonitorEmails(body) {
   const recipients = TEST_MODE ? [TEST_EMAIL] : parseJsonArrayEnv("COD_ALERT_IDS");
   if (!recipients.length) {
     console.warn("⚠️ COD monitor email skipped: COD_ALERT_IDS is empty.");
-    return { attempted: 0, sent: 0, suppressed: 0 };
+    return { attempted: 0, sent: 0, suppressed: 0, brandsIncluded: 0 };
   }
 
   const candidateResults = body.brand_results.filter(
     (result) => result.status === "ok" && Array.isArray(result.alerts) && result.alerts.length > 0,
   );
 
-  let attempted = 0;
-  let sent = 0;
+  const eligibleResults = [];
   let suppressed = 0;
 
   for (const result of candidateResults) {
     const eligibleAlerts = await filterCodAlertsByCooldown(result.brand, result.alerts);
     suppressed += result.alerts.length - eligibleAlerts.length;
 
-    if (!eligibleAlerts.length) {
-      console.log(`   ❄️  [COD] All findings for ${result.brand} suppressed by cooldown — no email sent.`);
-      continue;
+    if (eligibleAlerts.length) {
+      eligibleResults.push({ ...result, alerts: eligibleAlerts });
+    } else {
+      console.log(`   ❄️  [COD] All findings for ${result.brand} suppressed by cooldown — excluded from digest.`);
     }
-
-    attempted += 1;
-    const { subject, html } = buildCodEmailPayload({ ...result, alerts: eligibleAlerts }, body.run_date);
-    const finalSubject = TEST_MODE ? `[TEST] ${subject}` : subject;
-    await sendEmail({ to: recipients }, finalSubject, html);
-    await recordCodAlertsFired(result.brand, eligibleAlerts);
-    sent += 1;
   }
 
-  return { attempted, sent, suppressed };
+  if (!eligibleResults.length) {
+    console.log("   [COD] No brands survived cooldown filtering — digest email skipped.");
+    return { attempted: 0, sent: 0, suppressed, brandsIncluded: 0 };
+  }
+
+  const { subject, html } = buildCodDigestEmail(eligibleResults, body.run_date);
+  const finalSubject = TEST_MODE ? `[TEST] ${subject}` : subject;
+  await sendEmail({ to: recipients }, finalSubject, html);
+
+  for (const result of eligibleResults) {
+    await recordCodAlertsFired(result.brand, result.alerts);
+  }
+
+  return { attempted: 1, sent: 1, suppressed, brandsIncluded: eligibleResults.length };
 }
 
 async function processCodMonitorResults(payload) {
@@ -2499,7 +2512,7 @@ async function processCodMonitorResults(payload) {
   if (!body.dry_run && Number(body.total_alerts || 0) > 0) {
     emailDelivery = await sendCodMonitorEmails(body);
     console.log(
-      `   📧 [COD] Email delivery: attempted=${emailDelivery.attempted} sent=${emailDelivery.sent} suppressed_by_cooldown=${emailDelivery.suppressed}`,
+      `   📧 [COD] Email delivery: sent=${emailDelivery.sent} (brands_included=${emailDelivery.brandsIncluded}) suppressed_by_cooldown=${emailDelivery.suppressed}`,
     );
   } else if (body.dry_run) {
     console.log("   COD dry-run detected: COD alert emails suppressed.");
