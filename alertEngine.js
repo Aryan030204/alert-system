@@ -2231,107 +2231,115 @@ function formatCodDelta(value) {
   return `${sign}${num.toFixed(2)}%`;
 }
 
-function buildCodAdditionalHTML(result) {
-  const overall = result.overall || {};
-  const thresholds = result.thresholds || {};
-  const configuredIds = Array.isArray(result.configured_product_ids)
-    ? result.configured_product_ids
-    : [];
-  const alerts = Array.isArray(result.alerts) ? result.alerts : [];
-  const productAlerts = alerts.filter((alert) => alert.level === "product");
-  const overallAlert = alerts.find((alert) => alert.level === "overall");
+const COD_TABLE_HEADER_CELL =
+  "padding:8px 10px; border:1px solid #4b5563; background:#374151; color:#ffffff; font-size:12px; text-transform:uppercase; letter-spacing:0.03em;";
+const COD_TABLE_CELL = "padding:7px 10px; border:1px solid #d1d5db; font-size:13px;";
 
-  const overallMetrics = `
-    <div style="background:#ffffff; border:1px solid #e5e7eb; border-radius:10px; padding:16px; margin-bottom:22px;">
-      <h3 style="margin:0 0 12px; font-size:16px; font-weight:600; color:#111827;">COD Snapshot</h3>
-      <table style="width:100%; border-collapse:collapse; font-size:14px;">
-        <tr><td style="padding:6px 0; color:#6b7280;">Today COD %</td><td style="padding:6px 0; text-align:right; font-weight:600;">${escapeHtml(formatCodPercent(overall.today_cod_pct))}</td></tr>
-        <tr><td style="padding:6px 0; color:#6b7280;">7-Day Avg COD %</td><td style="padding:6px 0; text-align:right; font-weight:600;">${escapeHtml(formatCodPercent(overall.baseline_cod_pct))}</td></tr>
-        <tr><td style="padding:6px 0; color:#6b7280;">Delta vs 7d Avg</td><td style="padding:6px 0; text-align:right; font-weight:600; color:#dc2626;">${escapeHtml(formatCodDelta(overall.delta_cod_pct))}</td></tr>
-        <tr><td style="padding:6px 0; color:#6b7280;">Orders Today</td><td style="padding:6px 0; text-align:right; font-weight:600;">${escapeHtml(overall.today_total_orders ?? "N/A")}</td></tr>
-        <tr><td style="padding:6px 0; color:#6b7280;">Overall Threshold</td><td style="padding:6px 0; text-align:right; font-weight:600;">${escapeHtml(thresholds.overall ?? "N/A")}% relative increase</td></tr>
-        <tr><td style="padding:6px 0; color:#6b7280;">Product Threshold</td><td style="padding:6px 0; text-align:right; font-weight:600;">${escapeHtml(thresholds.product ?? "N/A")}% relative increase</td></tr>
-      </table>
-      ${
-        overallAlert
-          ? `<p style="margin:14px 0 0; font-size:13px; color:#4b5563;">${escapeHtml(overallAlert.message)}</p>`
-          : ""
-      }
-    </div>
-  `;
+function buildCodOverallTable(eligibleResults) {
+  const rows = eligibleResults
+    .map((result, i) => {
+      const overall = result.overall || {};
+      const thresholds = result.thresholds || {};
+      const spiked = (result.alerts || []).some((a) => a.level === "overall");
+      const rowBg = i % 2 === 0 ? "#ffffff" : "#f9fafb";
+      const deltaColor = spiked ? "#dc2626" : "#374151";
 
-  const productSection = productAlerts.length
-    ? `
-      <div style="background:#ffffff; border:1px solid #e5e7eb; border-radius:10px; padding:16px; margin-bottom:22px;">
-        <h3 style="margin:0 0 12px; font-size:16px; font-weight:600; color:#111827;">Triggered Products</h3>
-        <table style="width:100%; border-collapse:collapse; font-size:13px;">
-          <thead>
-            <tr style="border-bottom:2px solid #e5e7eb; color:#6b7280; text-align:left;">
-              <th style="padding:8px 6px;">Product</th>
-              <th style="padding:8px 6px; text-align:right;">ID</th>
-              <th style="padding:8px 6px; text-align:right;">Today</th>
-              <th style="padding:8px 6px; text-align:right;">7d Avg</th>
-              <th style="padding:8px 6px; text-align:right;">Delta</th>
-              <th style="padding:8px 6px; text-align:right;">Orders</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${productAlerts
-              .map(
-                (alert) => `
-                  <tr style="border-bottom:1px solid #f3f4f6;">
-                    <td style="padding:8px 6px;">${escapeHtml(alert.product_name || "N/A")}</td>
-                    <td style="padding:8px 6px; text-align:right;">${escapeHtml(alert.product_id || "N/A")}</td>
-                    <td style="padding:8px 6px; text-align:right;">${escapeHtml(formatCodPercent(alert.today_cod_pct))}</td>
-                    <td style="padding:8px 6px; text-align:right;">${escapeHtml(formatCodPercent(alert.baseline_cod_pct))}</td>
-                    <td style="padding:8px 6px; text-align:right; color:#dc2626; font-weight:600;">${escapeHtml(formatCodDelta(alert.delta))}</td>
-                    <td style="padding:8px 6px; text-align:right;">${escapeHtml(alert.today_total_orders ?? "N/A")}</td>
-                  </tr>
-                `,
-              )
-              .join("")}
-          </tbody>
-        </table>
-      </div>
-    `
-    : "";
-
-  const configSection = `
-    <div style="background:#ffffff; border:1px solid #e5e7eb; border-radius:10px; padding:16px; margin-bottom:22px;">
-      <h3 style="margin:0 0 12px; font-size:16px; font-weight:600; color:#111827;">Monitoring Configuration</h3>
-      <p style="margin:0; font-size:13px; color:#4b5563;">
-        Product min orders: <strong>${escapeHtml(result.product_min_orders ?? "N/A")}</strong><br>
-        Configured product IDs: <strong>${escapeHtml(configuredIds.length ? configuredIds.join(", ") : "None")}</strong>
-      </p>
-    </div>
-  `;
-
-  return overallMetrics + productSection + configSection;
-}
-
-function buildCodDigestEmail(eligibleResults, runDate) {
-  const brandSections = eligibleResults
-    .map((result) => {
-      const brand = String(result.brand || "").toUpperCase();
       return `
-        <div style="margin-bottom:28px; padding-bottom:24px; border-bottom:1px solid #e5e7eb;">
-          <h2 style="margin:0 0 16px; font-size:18px; font-weight:700; color:#111827;">${escapeHtml(brand)}</h2>
-          ${buildCodAdditionalHTML(result)}
-        </div>
+        <tr style="background:${rowBg};">
+          <td style="${COD_TABLE_CELL} font-weight:600; color:#111827; text-align:left;">${escapeHtml(String(result.brand || "").toUpperCase())}</td>
+          <td style="${COD_TABLE_CELL} text-align:right;">${escapeHtml(formatCodPercent(overall.today_cod_pct))}</td>
+          <td style="${COD_TABLE_CELL} text-align:right;">${escapeHtml(formatCodPercent(overall.baseline_cod_pct))}</td>
+          <td style="${COD_TABLE_CELL} text-align:right; font-weight:600; color:${deltaColor};">${escapeHtml(formatCodDelta(overall.delta_cod_pct))}</td>
+          <td style="${COD_TABLE_CELL} text-align:right;">${escapeHtml(overall.today_total_orders ?? "N/A")}</td>
+          <td style="${COD_TABLE_CELL} text-align:right;">${escapeHtml(thresholds.overall ?? "N/A")}%</td>
+          <td style="${COD_TABLE_CELL} text-align:center;">${
+            spiked
+              ? '<span style="color:#dc2626; font-weight:700;">⚠ SPIKE</span>'
+              : '<span style="color:#9ca3af;">—</span>'
+          }</td>
+        </tr>
       `;
     })
     .join("");
 
+  return `
+    <table style="width:100%; border-collapse:collapse; margin-bottom:26px;">
+      <thead>
+        <tr>
+          <th style="${COD_TABLE_HEADER_CELL} text-align:left;">Brand</th>
+          <th style="${COD_TABLE_HEADER_CELL} text-align:right;">Today COD%</th>
+          <th style="${COD_TABLE_HEADER_CELL} text-align:right;">7d Avg</th>
+          <th style="${COD_TABLE_HEADER_CELL} text-align:right;">Delta</th>
+          <th style="${COD_TABLE_HEADER_CELL} text-align:right;">Orders</th>
+          <th style="${COD_TABLE_HEADER_CELL} text-align:right;">Threshold</th>
+          <th style="${COD_TABLE_HEADER_CELL} text-align:center;">Status</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+function buildCodProductsTable(eligibleResults) {
+  const rows = [];
+  eligibleResults.forEach((result) => {
+    const brand = String(result.brand || "").toUpperCase();
+    (result.alerts || [])
+      .filter((alert) => alert.level === "product")
+      .forEach((alert) => rows.push({ brand, alert }));
+  });
+
+  if (!rows.length) return "";
+
+  const bodyRows = rows
+    .map(({ brand, alert }, i) => {
+      const rowBg = i % 2 === 0 ? "#ffffff" : "#f9fafb";
+      return `
+        <tr style="background:${rowBg};">
+          <td style="${COD_TABLE_CELL} font-weight:600; text-align:left;">${escapeHtml(brand)}</td>
+          <td style="${COD_TABLE_CELL} text-align:left;">${escapeHtml(alert.product_name || "N/A")}</td>
+          <td style="${COD_TABLE_CELL} text-align:right;">${escapeHtml(alert.product_id || "N/A")}</td>
+          <td style="${COD_TABLE_CELL} text-align:right;">${escapeHtml(formatCodPercent(alert.today_cod_pct))}</td>
+          <td style="${COD_TABLE_CELL} text-align:right;">${escapeHtml(formatCodPercent(alert.baseline_cod_pct))}</td>
+          <td style="${COD_TABLE_CELL} text-align:right; font-weight:600; color:#dc2626;">${escapeHtml(formatCodDelta(alert.delta))}</td>
+          <td style="${COD_TABLE_CELL} text-align:right;">${escapeHtml(alert.today_total_orders ?? "N/A")}</td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  return `
+    <h3 style="margin:0 0 10px; font-size:15px; font-weight:600; color:#111827;">Triggered Products (${rows.length})</h3>
+    <table style="width:100%; border-collapse:collapse; margin-bottom:26px;">
+      <thead>
+        <tr>
+          <th style="${COD_TABLE_HEADER_CELL} text-align:left;">Brand</th>
+          <th style="${COD_TABLE_HEADER_CELL} text-align:left;">Product</th>
+          <th style="${COD_TABLE_HEADER_CELL} text-align:right;">ID</th>
+          <th style="${COD_TABLE_HEADER_CELL} text-align:right;">Today</th>
+          <th style="${COD_TABLE_HEADER_CELL} text-align:right;">7d Avg</th>
+          <th style="${COD_TABLE_HEADER_CELL} text-align:right;">Delta</th>
+          <th style="${COD_TABLE_HEADER_CELL} text-align:right;">Orders</th>
+        </tr>
+      </thead>
+      <tbody>${bodyRows}</tbody>
+    </table>
+  `;
+}
+
+function buildCodDigestEmail(eligibleResults, runDate) {
   const brandCount = eligibleResults.length;
   const brandLabel = brandCount === 1 ? "brand" : "brands";
   const brandNames = eligibleResults.map((r) => String(r.brand || "").toUpperCase()).join(", ");
-
   const subject = `[COD Monitor] Daily Report | ${runDate} | ${brandCount} ${brandLabel}: ${brandNames}`;
+
+  const overallTable = buildCodOverallTable(eligibleResults);
+  const productsTable = buildCodProductsTable(eligibleResults);
 
   const html = `
   <html>
   <body style="margin:0; padding:0; background:#f4f6fb; font-family:Arial, sans-serif;">
-    <div style="max-width:680px; margin:30px auto; background:#ffffff;
+    <div style="max-width:840px; margin:30px auto; background:#ffffff;
       border-radius:12px; overflow:hidden; box-shadow:0 6px 25px rgba(0,0,0,0.08);">
 
       <div style="background:#dc2626; padding:26px 32px; color:#ffffff;">
@@ -2342,7 +2350,9 @@ function buildCodDigestEmail(eligibleResults, runDate) {
       </div>
 
       <div style="padding:30px; line-height:1.6; color:#374151;">
-        ${brandSections}
+        <h3 style="margin:0 0 10px; font-size:15px; font-weight:600; color:#111827;">Overall Summary</h3>
+        <div style="overflow-x:auto;">${overallTable}</div>
+        ${productsTable ? `<div style="overflow-x:auto;">${productsTable}</div>` : ""}
         <p style="font-size:15px; color:#4b5563; margin-top:8px;">
           Take a look at the latest activity on your dashboard for possible causes:
           <a href="https://datum.trytechit.co/" style="color:#4f46e5; text-decoration:underline;">
