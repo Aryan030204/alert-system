@@ -2357,26 +2357,109 @@ function buildCodEmailPayload(result, runDate) {
   return { subject, html };
 }
 
+/* -------------------------------------------------------
+   COD alert spam protection: per-(brand, level, product_id)
+   cooldown, tracked in a dedicated Mongo collection so repeat
+   findings (e.g. from an hourly-triggered run, or a sustained
+   day-long spike) don't re-email every run.
+--------------------------------------------------------*/
+const COD_ALERT_COOLDOWN_HOURS = 24;
+
+async function getCodAlertHistoryCollection() {
+  if (!mongoClient) {
+    if (!process.env.MONGO_URI) {
+      throw new Error("MONGO_URI not set");
+    }
+    mongoClient = new MongoClient(process.env.MONGO_URI);
+    await mongoClient.connect();
+  }
+  return mongoClient.db().collection("cod_alert_history");
+}
+
+function codAlertKey(brand, alert) {
+  return {
+    brand,
+    level: alert.level,
+    product_id: alert.level === "product" ? String(alert.product_id) : null,
+  };
+}
+
+async function filterCodAlertsByCooldown(brand, alerts) {
+  const collection = await getCodAlertHistoryCollection();
+  const eligible = [];
+
+  for (const alert of alerts) {
+    const key = codAlertKey(brand, alert);
+    const last = await collection.findOne(key, { sort: { triggered_at: -1 } });
+
+    if (last) {
+      const hoursSince = (Date.now() - new Date(last.triggered_at).getTime()) / 3600000;
+      if (hoursSince < COD_ALERT_COOLDOWN_HOURS) {
+        console.log(
+          `   ❄️  [COD] Cooldown active for ${brand} [${key.level}${key.product_id ? `:${key.product_id}` : ""}] — last fired ${hoursSince.toFixed(2)}h ago, requires ${COD_ALERT_COOLDOWN_HOURS}h. Skipping.`,
+        );
+        continue;
+      }
+    }
+
+    eligible.push(alert);
+  }
+
+  return eligible;
+}
+
+async function recordCodAlertsFired(brand, alerts) {
+  if (!alerts.length) return;
+  const collection = await getCodAlertHistoryCollection();
+  const now = new Date();
+
+  await collection.bulkWrite(
+    alerts.map((alert) => {
+      const key = codAlertKey(brand, alert);
+      return {
+        updateOne: {
+          filter: key,
+          update: { $set: { ...key, triggered_at: now } },
+          upsert: true,
+        },
+      };
+    }),
+  );
+}
+
 async function sendCodMonitorEmails(body) {
   const recipients = TEST_MODE ? [TEST_EMAIL] : parseJsonArrayEnv("COD_ALERT_IDS");
   if (!recipients.length) {
     console.warn("⚠️ COD monitor email skipped: COD_ALERT_IDS is empty.");
-    return { attempted: 0, sent: 0 };
+    return { attempted: 0, sent: 0, suppressed: 0 };
   }
 
-  const triggeredResults = body.brand_results.filter(
+  const candidateResults = body.brand_results.filter(
     (result) => result.status === "ok" && Array.isArray(result.alerts) && result.alerts.length > 0,
   );
 
+  let attempted = 0;
   let sent = 0;
-  for (const result of triggeredResults) {
-    const { subject, html } = buildCodEmailPayload(result, body.run_date);
+  let suppressed = 0;
+
+  for (const result of candidateResults) {
+    const eligibleAlerts = await filterCodAlertsByCooldown(result.brand, result.alerts);
+    suppressed += result.alerts.length - eligibleAlerts.length;
+
+    if (!eligibleAlerts.length) {
+      console.log(`   ❄️  [COD] All findings for ${result.brand} suppressed by cooldown — no email sent.`);
+      continue;
+    }
+
+    attempted += 1;
+    const { subject, html } = buildCodEmailPayload({ ...result, alerts: eligibleAlerts }, body.run_date);
     const finalSubject = TEST_MODE ? `[TEST] ${subject}` : subject;
     await sendEmail({ to: recipients }, finalSubject, html);
+    await recordCodAlertsFired(result.brand, eligibleAlerts);
     sent += 1;
   }
 
-  return { attempted: triggeredResults.length, sent };
+  return { attempted, sent, suppressed };
 }
 
 async function processCodMonitorResults(payload) {
@@ -2412,9 +2495,12 @@ async function processCodMonitorResults(payload) {
     );
   });
 
-  let emailDelivery = { attempted: 0, sent: 0 };
+  let emailDelivery = { attempted: 0, sent: 0, suppressed: 0 };
   if (!body.dry_run && Number(body.total_alerts || 0) > 0) {
     emailDelivery = await sendCodMonitorEmails(body);
+    console.log(
+      `   📧 [COD] Email delivery: attempted=${emailDelivery.attempted} sent=${emailDelivery.sent} suppressed_by_cooldown=${emailDelivery.suppressed}`,
+    );
   } else if (body.dry_run) {
     console.log("   COD dry-run detected: COD alert emails suppressed.");
   } else {

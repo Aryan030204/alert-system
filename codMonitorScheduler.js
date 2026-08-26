@@ -5,7 +5,7 @@ const { MongoClient } = require("mongodb");
 const { processCodMonitorResults } = require("./alertEngine");
 
 const SCHEDULE_TIME_ZONE = "Asia/Kolkata";
-const LOCK_NAME = "cod_monitor_hourly";
+const LOCK_NAME = "cod_monitor_daily";
 const schedulerOwner = `${os.hostname()}:${process.pid}`;
 
 let codMonitorTimer = null;
@@ -30,6 +30,7 @@ function getSchedulerConfig() {
     enabled: parseBoolean(process.env.COD_MONITOR_SCHEDULE_ENABLED, false),
     runOnBoot: parseBoolean(process.env.COD_MONITOR_RUN_ON_BOOT, false),
     dryRun: parseBoolean(process.env.COD_MONITOR_SCHEDULE_DRY_RUN, false),
+    hour: Number(process.env.COD_MONITOR_SCHEDULE_HOUR_IST ?? 9),
     minute: Number(process.env.COD_MONITOR_SCHEDULE_MINUTE_IST || 0),
     pythonBin: process.env.COD_MONITOR_PYTHON_BIN || "python",
     scriptPath:
@@ -44,13 +45,12 @@ function getNowInTimeZone(timeZone) {
   return new Date(new Date().toLocaleString("en-US", { timeZone }));
 }
 
-function getDelayUntilNextRun(minute, timeZone) {
+function getDelayUntilNextRun(hour, minute, timeZone) {
   const now = getNowInTimeZone(timeZone);
   const next = new Date(now);
-  next.setSeconds(0, 0);
-  next.setMinutes(minute);
+  next.setHours(hour, minute, 0, 0);
   if (next <= now) {
-    next.setHours(next.getHours() + 1);
+    next.setDate(next.getDate() + 1);
   }
   return next.getTime() - now.getTime();
 }
@@ -224,7 +224,7 @@ function scheduleNextRun() {
     clearTimeout(codMonitorTimer);
   }
 
-  const delayMs = getDelayUntilNextRun(config.minute, SCHEDULE_TIME_ZONE);
+  const delayMs = getDelayUntilNextRun(config.hour, config.minute, SCHEDULE_TIME_ZONE);
   const nextRunLabel = formatScheduledTime(delayMs, SCHEDULE_TIME_ZONE);
   console.log(
     `🕒 Next COD monitor run scheduled for ${nextRunLabel} (${SCHEDULE_TIME_ZONE})`,
@@ -249,7 +249,7 @@ function startCodMonitorScheduler() {
   }
 
   console.log(
-    `🕐 COD monitor scheduler enabled to run every hour at minute ${String(config.minute).padStart(2, "0")} ${SCHEDULE_TIME_ZONE}`,
+    `🕐 COD monitor scheduler enabled to run daily at ${String(config.hour).padStart(2, "0")}:${String(config.minute).padStart(2, "0")} ${SCHEDULE_TIME_ZONE}`,
   );
 
   if (config.runOnBoot) {
