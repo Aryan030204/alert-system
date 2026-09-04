@@ -1179,39 +1179,61 @@ async function triggerAlert({
     return;
   }
 
-  // Production mode: fetch channels
-  let channels = [];
-  if (rule.have_recipients === true || rule.have_recipients === 1) {
-    [channels] = await pool.query(
-      "SELECT * FROM alert_channels WHERE alert_id = ?",
-      [rule.id],
-    );
-  } else {
-    [channels] = await pool.query(
-      "SELECT * FROM brands_alert_channel WHERE brand_id = ? AND is_active = 1",
-      [rule.brand_id],
-    );
-  }
+  // Performance rules use a dedicated global recipient list (PERFORMANCE_EMAIL_IDS)
+  // instead of the per-rule/per-brand channel config every other metric uses.
+  if (rule.metric_name === "performance") {
+    const performanceRecipients = parseJsonArrayEnv("PERFORMANCE_EMAIL_IDS");
 
-  const shouldSendEmail = rule.is_active === 1 || rule.is_active === true;
-
-  if (shouldSendEmail) {
-    for (const ch of channels) {
-      if (ch.channel_type !== "email") continue;
-
-      const cfg = parseChannelConfig(ch.channel_config);
-      if (!cfg) continue;
-
+    if (!performanceRecipients.length) {
+      console.warn(
+        "   ⚠️ [PERFORMANCE] Email skipped: PERFORMANCE_EMAIL_IDS is empty.",
+      );
+    } else {
       const subject =
         newState === "NORMAL"
           ? `${event.brand.toUpperCase()} | ${escalationTag}${subjectMetricName} Back to Normal | 0-${endHour}h`
-          : `${event.brand.toUpperCase()} | ${escalationTag}${templateInfo.subjectTag} ${subjectMetricName} Alert ${rule.metric_name === "performance" ? `| ${Number(metricValue).toFixed(2)} ` : ""}| ${dropVal}% ${dropLabel} | 0-${endHour}h`;
+          : `${event.brand.toUpperCase()} | ${escalationTag}${templateInfo.subjectTag} ${subjectMetricName} Alert | ${Number(metricValue).toFixed(2)} | ${dropVal}% ${dropLabel} | 0-${endHour}h`;
 
-      console.log(`   📧 Preparing to send email to: ${JSON.stringify(cfg.to)}`);
-      await sendEmail(cfg, subject, emailHTML);
+      console.log(
+        `   📧 [PERFORMANCE] Sending email to PERFORMANCE_EMAIL_IDS: ${JSON.stringify(performanceRecipients)}`,
+      );
+      await sendEmail({ to: performanceRecipients }, subject, emailHTML);
     }
   } else {
-    console.log(`   📧 Emails skipped (is_active is false/0)`);
+    // Production mode: fetch channels
+    let channels = [];
+    if (rule.have_recipients === true || rule.have_recipients === 1) {
+      [channels] = await pool.query(
+        "SELECT * FROM alert_channels WHERE alert_id = ?",
+        [rule.id],
+      );
+    } else {
+      [channels] = await pool.query(
+        "SELECT * FROM brands_alert_channel WHERE brand_id = ? AND is_active = 1",
+        [rule.brand_id],
+      );
+    }
+
+    const shouldSendEmail = rule.is_active === 1 || rule.is_active === true;
+
+    if (shouldSendEmail) {
+      for (const ch of channels) {
+        if (ch.channel_type !== "email") continue;
+
+        const cfg = parseChannelConfig(ch.channel_config);
+        if (!cfg) continue;
+
+        const subject =
+          newState === "NORMAL"
+            ? `${event.brand.toUpperCase()} | ${escalationTag}${subjectMetricName} Back to Normal | 0-${endHour}h`
+            : `${event.brand.toUpperCase()} | ${escalationTag}${templateInfo.subjectTag} ${subjectMetricName} Alert ${rule.metric_name === "performance" ? `| ${Number(metricValue).toFixed(2)} ` : ""}| ${dropVal}% ${dropLabel} | 0-${endHour}h`;
+
+        console.log(`   📧 Preparing to send email to: ${JSON.stringify(cfg.to)}`);
+        await sendEmail(cfg, subject, emailHTML);
+      }
+    } else {
+      console.log(`   📧 Emails skipped (is_active is false/0)`);
+    }
   }
 
   // Build the webhook payload condition string
