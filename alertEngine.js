@@ -495,9 +495,10 @@ async function getPerformanceMetricsFromMySQL(dbNameForQuery, todayStr, lookback
       drops.sort((a, b) => a.dropValue - b.dropValue); // Largest surge first
     }
 
-    const top5Drops = drops
-      .filter((d) => (isOverallDrop ? d.dropValue > 0 : d.dropValue < 0))
-      .slice(0, 5);
+    // Always show up to 5 tracked pages, worst-affected first — unaffected pages
+    // are kept (with ~0 change) as filler rather than dropped from the list, so
+    // manually averaging the shown rows matches the overall aggregate above.
+    const top5Drops = drops.slice(0, 5);
 
     result.top5Pages = top5Drops.length > 0 ? top5Drops : null;
 
