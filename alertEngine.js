@@ -1048,7 +1048,7 @@ function generateEmailHTML(
           event.top5Pages && event.top5Pages.length > 0
             ? `
             <div style="background:#ffffff; border:1px solid #e5e7eb; border-radius:10px; padding:16px; margin-bottom:22px;">
-              <h3 style="margin:0 0 12px; font-size:16px; font-weight:600; color:#111827;">Top Pages with Drop in Speed</h3>
+              <h3 style="margin:0 0 12px; font-size:16px; font-weight:600; color:#111827;">Top Pages ${hasDrop && dropPercent < 0 ? "with Rise in Speed" : "with Drop in Speed"}</h3>
               <table style="width:100%; border-collapse:collapse; font-size:13px; table-layout: fixed;">
                 <thead>
                     <tr style="border-bottom:2px solid #e5e7eb; text-align:left; color:#6b7280;">
@@ -1226,7 +1226,7 @@ async function triggerAlert({
   newState,
   escalationInfo,
 }) {
-  const templateInfo = selectEmailTemplate(rule, previousState, newState);
+  const templateInfo = selectEmailTemplate(rule, previousState, newState, dropPercent);
 
   const emailHTML = generateEmailHTML(
     event,
@@ -1586,13 +1586,36 @@ function hasStateChanged(previousState, newState) {
 /* -------------------------------------------------------
    State Machine: Select Email Template
 --------------------------------------------------------*/
-function selectEmailTemplate(rule, previousState, newState) {
+function selectEmailTemplate(rule, previousState, newState, dropPercent) {
   const metricLabel =
     rule.metric_name === "performance"
       ? "SPEED"
       : rule.metric_name === "conversion_rate"
         ? "CVR"
         : rule.metric_name.replace(/_/g, " ").toUpperCase();
+
+  // For performance rules, describe the trend vs the 7-day average (not just
+  // the absolute severity bucket) — a same/worse bucket can still be improving.
+  const isPerformance = rule.metric_name === "performance";
+  const hasTrend = isPerformance && typeof dropPercent === "number" && !Number.isNaN(dropPercent);
+  const isImproving = hasTrend && dropPercent < 0;
+  const buildPerformanceSubtext = (stateLabel, worsenedWording) => {
+    if (!hasTrend) return worsenedWording;
+    return isImproving
+      ? `Site speed is still in the ${stateLabel} range, but has improved ${Math.abs(dropPercent).toFixed(2)}% vs the 7-day average.`
+      : `Site speed is in the ${stateLabel} range and has worsened ${Math.abs(dropPercent).toFixed(2)}% vs the 7-day average.`;
+  };
+  // On a genuine rise, drop the severity-state name from the heading entirely —
+  // "Needs Immediate Attention" reads as alarming even though this is good news.
+  // Worsening/no-trend cases keep the state name so the severity is still clear.
+  const buildPerformanceHeading = (stateLabel) => {
+    if (isImproving) return `Performance Improved — ${Math.abs(dropPercent).toFixed(2)}% Rise`;
+    if (hasTrend) return `${stateLabel} — ${Math.abs(dropPercent).toFixed(2)}% Drop in Performance`;
+    return `${stateLabel} — ${String(rule.name || metricLabel)}`;
+  };
+  // A genuine improvement gets a green backdrop regardless of severity color,
+  // so the visual read matches "this is trending better" at a glance.
+  const performanceHeaderColor = (baseColor) => (isImproving ? "#10b981" : baseColor);
 
   // Recovery → green theme
   if (newState === "NORMAL") {
@@ -1643,10 +1666,16 @@ function selectEmailTemplate(rule, previousState, newState) {
 
     return {
       subjectTag,
-      bodyHeading: `${action} — ${String(rule.name || metricLabel)}`,
-      bodySubtext:
-        "This metric has breached the critical threshold and requires immediate attention.",
-      headerColor: "#dc2626",
+      bodyHeading: isPerformance
+        ? buildPerformanceHeading("Critical")
+        : `${action} — ${String(rule.name || metricLabel)}`,
+      bodySubtext: isPerformance
+        ? buildPerformanceSubtext(
+            "Critical",
+            "This metric has breached the critical threshold and requires immediate attention.",
+          )
+        : "This metric has breached the critical threshold and requires immediate attention.",
+      headerColor: isPerformance ? performanceHeaderColor("#dc2626") : "#dc2626",
       emoji: "🚨",
       previousState,
       newState,
@@ -1657,9 +1686,12 @@ function selectEmailTemplate(rule, previousState, newState) {
   if (newState === "NEEDS ATTENTION") {
     return {
       subjectTag: "Needs Attention",
-      bodyHeading: `Needs Attention — ${String(rule.name || metricLabel)}`,
-      bodySubtext: "Site speed has dipped into the Needs Attention range.",
-      headerColor: "#f59e0b",
+      bodyHeading: buildPerformanceHeading("Needs Attention"),
+      bodySubtext: buildPerformanceSubtext(
+        "Needs Attention",
+        "Site speed has dipped into the Needs Attention range.",
+      ),
+      headerColor: performanceHeaderColor("#f59e0b"),
       emoji: "⚠️",
       previousState,
       newState,
@@ -1669,9 +1701,12 @@ function selectEmailTemplate(rule, previousState, newState) {
   if (newState === "NEEDS IMMEDIATE ATTENTION") {
     return {
       subjectTag: "Needs Immediate Attention",
-      bodyHeading: `Needs Immediate Attention — ${String(rule.name || metricLabel)}`,
-      bodySubtext: "Site speed has dropped into the Needs Immediate Attention range.",
-      headerColor: "#ea580c",
+      bodyHeading: buildPerformanceHeading("Needs Immediate Attention"),
+      bodySubtext: buildPerformanceSubtext(
+        "Needs Immediate Attention",
+        "Site speed has dropped into the Needs Immediate Attention range.",
+      ),
+      headerColor: performanceHeaderColor("#ea580c"),
       emoji: "🔶",
       previousState,
       newState,
@@ -1681,9 +1716,12 @@ function selectEmailTemplate(rule, previousState, newState) {
   if (newState === "ALMOST CRITICAL") {
     return {
       subjectTag: "Almost Critical",
-      bodyHeading: `Almost Critical — ${String(rule.name || metricLabel)}`,
-      bodySubtext: "Site speed is now Almost Critical and close to the critical floor.",
-      headerColor: "#e11d48",
+      bodyHeading: buildPerformanceHeading("Almost Critical"),
+      bodySubtext: buildPerformanceSubtext(
+        "Almost Critical",
+        "Site speed is now Almost Critical and close to the critical floor.",
+      ),
+      headerColor: performanceHeaderColor("#e11d48"),
       emoji: "🔺",
       previousState,
       newState,
