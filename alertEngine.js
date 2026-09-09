@@ -1268,6 +1268,25 @@ async function triggerAlert({
   const isEscalation = escalationInfo?.isEscalation === true;
   const escalationTag = isEscalation ? "[Escalation] " : "";
 
+  // Performance-only subject override: reaching NORMAL or upgrading between two
+  // still-bad buckets gets distinct subject wording, separate from the body (which
+  // keeps naming the actual current state via selectEmailTemplate/generateEmailHTML).
+  const isPerformance = rule.metric_name === "performance";
+  const perfPrevRank = PERFORMANCE_STATE_SEVERITY_RANK[previousState];
+  const perfNewRank = PERFORMANCE_STATE_SEVERITY_RANK[newState];
+  const isPerformanceRecovery = isPerformance && newState === "NORMAL";
+  const isPerformanceUpgrade =
+    isPerformance &&
+    !isPerformanceRecovery &&
+    perfPrevRank != null &&
+    perfNewRank != null &&
+    perfNewRank < perfPrevRank;
+  const performanceSubjectTagSegment = isPerformanceRecovery
+    ? "BACK NORMAL"
+    : isPerformanceUpgrade
+      ? "PERFORMANCE GOT BETTER"
+      : `${templateInfo.subjectTag} ${subjectMetricName} Alert`;
+
   // Build alert_history document
   const historyDoc = {
     alert_id: rule.id,
@@ -1288,10 +1307,11 @@ async function triggerAlert({
 
   // 🧪 TEST MODE: Override all channels to single test email
   if (TEST_MODE) {
-    const subject =
-      newState === "NORMAL"
+    const subject = isPerformance
+      ? `[TEST] ${event.brand.toUpperCase()} | ${escalationTag}${performanceSubjectTagSegment} | ${Number(metricValue).toFixed(2)} | ${dropVal}% ${dropLabel} | 0-${endHour}h`
+      : newState === "NORMAL"
         ? `[TEST] ${event.brand.toUpperCase()} | ${escalationTag}${subjectMetricName} Back to Normal | 0-${endHour}h`
-        : `[TEST] ${event.brand.toUpperCase()} | ${escalationTag}${templateInfo.subjectTag} ${subjectMetricName} Alert ${rule.metric_name === "performance" ? `| ${Number(metricValue).toFixed(2)} ` : ""}| ${dropVal}% ${dropLabel} | 0-${endHour}h`;
+        : `[TEST] ${event.brand.toUpperCase()} | ${escalationTag}${templateInfo.subjectTag} ${subjectMetricName} Alert | ${dropVal}% ${dropLabel} | 0-${endHour}h`;
 
     console.log(`🧪 TEST MODE: Sending to ${TEST_EMAIL} only`);
 
@@ -1326,10 +1346,7 @@ async function triggerAlert({
         "   ⚠️ [PERFORMANCE] Email skipped: PERFORMANCE_EMAIL_IDS is empty.",
       );
     } else {
-      const subject =
-        newState === "NORMAL"
-          ? `${event.brand.toUpperCase()} | ${escalationTag}${subjectMetricName} Back to Normal | 0-${endHour}h`
-          : `${event.brand.toUpperCase()} | ${escalationTag}${templateInfo.subjectTag} ${subjectMetricName} Alert | ${Number(metricValue).toFixed(2)} | ${dropVal}% ${dropLabel} | 0-${endHour}h`;
+      const subject = `${event.brand.toUpperCase()} | ${escalationTag}${performanceSubjectTagSegment} | ${Number(metricValue).toFixed(2)} | ${dropVal}% ${dropLabel} | 0-${endHour}h`;
 
       console.log(
         `   📧 [PERFORMANCE] Sending email to PERFORMANCE_EMAIL_IDS: ${JSON.stringify(performanceRecipients)}`,
@@ -1605,12 +1622,16 @@ function selectEmailTemplate(rule, previousState, newState, dropPercent) {
       ? `Site speed is still in the ${stateLabel} range, but has improved ${Math.abs(dropPercent).toFixed(2)}% vs the 7-day average.`
       : `Site speed is in the ${stateLabel} range and has worsened ${Math.abs(dropPercent).toFixed(2)}% vs the 7-day average.`;
   };
-  // On a genuine rise, drop the severity-state name from the heading entirely —
-  // "Needs Immediate Attention" reads as alarming even though this is good news.
-  // Worsening/no-trend cases keep the state name so the severity is still clear.
+  // On a rise WHILE STUCK IN THE SAME BUCKET, drop the severity-state name from
+  // the heading entirely — "Needs Immediate Attention" reads as alarming even
+  // though this is good news, and there's no state-rank change to report anyway.
+  // A genuine rank UPGRADE (or a downgrade, or no trend data) always keeps the
+  // state name — the subject line already carries the "GOT BETTER" framing for
+  // upgrades, so the body's job is to say plainly which state it's now in.
+  const isSameState = previousState === newState;
   const buildPerformanceHeading = (stateLabel) => {
-    if (isImproving) return `Performance Improved — ${Math.abs(dropPercent).toFixed(2)}% Rise`;
-    if (hasTrend) return `${stateLabel} — ${Math.abs(dropPercent).toFixed(2)}% Drop in Performance`;
+    if (isSameState && isImproving) return `Performance Improved — ${Math.abs(dropPercent).toFixed(2)}% Rise`;
+    if (hasTrend) return `${stateLabel} — ${Math.abs(dropPercent).toFixed(2)}% ${isImproving ? "Rise" : "Drop"} in Performance`;
     return `${stateLabel} — ${String(rule.name || metricLabel)}`;
   };
   // A genuine improvement gets a green backdrop regardless of severity color,
@@ -2169,8 +2190,8 @@ async function processIncomingEvent(event) {
 
       const prevRank = PERFORMANCE_STATE_SEVERITY_RANK[previousState] ?? 0;
       const newRank = PERFORMANCE_STATE_SEVERITY_RANK[newState] ?? 0;
-      const isDowngradeOrSame = newRank >= prevRank;
-      const eligibleToFire = newState !== "NORMAL" && isDowngradeOrSame;
+      const isRecoveryTransition = newState === "NORMAL" && previousState !== "NORMAL";
+      const eligibleToFire = newState !== "NORMAL" || isRecoveryTransition;
 
       console.log(
         `   🧮 [PERFORMANCE] severity rank: previous="${previousState}"(${prevRank}) → new="${newState}"(${newRank}) | ${
@@ -2183,9 +2204,12 @@ async function processIncomingEvent(event) {
 
       if (!eligibleToFire) {
         console.log(
-          newState === "NORMAL"
-            ? `   ✅ [PERFORMANCE] New state is NORMAL — recovery alerts are never sent for performance rules. current_state will still update.`
-            : `   ⬆️  [PERFORMANCE] Upgrade detected (${previousState} → ${newState}) — no fire for improvements, only downgrades or same-state repeats.`,
+          `   ✅ [PERFORMANCE] Still NORMAL (${previousState} → ${newState}) — no repeat "still fine" notifications.`,
+        );
+      } else if (isRecoveryTransition) {
+        shouldFire = true;
+        console.log(
+          `   ✅ [PERFORMANCE] Recovery transition (${previousState} → NORMAL) — firing immediately, no cooldown gate.`,
         );
       } else {
         cooldownInfo = await checkPerformanceStateCooldown(rule.id, newState);
@@ -2196,7 +2220,7 @@ async function processIncomingEvent(event) {
           );
         } else if (cooldownInfo.lastFiredAt) {
           console.log(
-            `   ✅ [PERFORMANCE] Cooldown CLEARED for "${newState}": last fired ${cooldownInfo.hoursSince.toFixed(2)}h ago, required ${cooldownInfo.cooldownHours}h. Eligible to fire.`,
+            `   ✅ [PERFORMANCE] Cooldown CLEARED for "${newState}": last fired ${cooldownInfo.hoursSince.toFixed(2)}h ago, required ${cooldownInfo.cooldownHours}h. Eligible to fire (rank ${newRank > prevRank ? "DOWNGRADE" : newRank === prevRank ? "SAME" : "UPGRADE"}).`,
           );
         } else {
           console.log(
