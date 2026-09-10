@@ -1286,6 +1286,9 @@ async function triggerAlert({
     : isPerformanceUpgrade
       ? "PERFORMANCE GOT BETTER"
       : `${templateInfo.subjectTag} ${subjectMetricName} Alert`;
+  // BACK NORMAL drops the rise/drop delta segment entirely — the whole point of
+  // that subject is "you're fine now," not how much better it got.
+  const performanceDeltaSegment = isPerformanceRecovery ? "" : ` | ${dropVal}% ${dropLabel}`;
 
   // Build alert_history document
   const historyDoc = {
@@ -1308,7 +1311,7 @@ async function triggerAlert({
   // 🧪 TEST MODE: Override all channels to single test email
   if (TEST_MODE) {
     const subject = isPerformance
-      ? `[TEST] ${event.brand.toUpperCase()} | ${escalationTag}${performanceSubjectTagSegment} | ${Number(metricValue).toFixed(2)} | ${dropVal}% ${dropLabel} | 0-${endHour}h`
+      ? `[TEST] ${event.brand.toUpperCase()} | ${escalationTag}${performanceSubjectTagSegment} | ${Number(metricValue).toFixed(2)}${performanceDeltaSegment} | 0-${endHour}h`
       : newState === "NORMAL"
         ? `[TEST] ${event.brand.toUpperCase()} | ${escalationTag}${subjectMetricName} Back to Normal | 0-${endHour}h`
         : `[TEST] ${event.brand.toUpperCase()} | ${escalationTag}${templateInfo.subjectTag} ${subjectMetricName} Alert | ${dropVal}% ${dropLabel} | 0-${endHour}h`;
@@ -1346,7 +1349,7 @@ async function triggerAlert({
         "   ⚠️ [PERFORMANCE] Email skipped: PERFORMANCE_EMAIL_IDS is empty.",
       );
     } else {
-      const subject = `${event.brand.toUpperCase()} | ${escalationTag}${performanceSubjectTagSegment} | ${Number(metricValue).toFixed(2)} | ${dropVal}% ${dropLabel} | 0-${endHour}h`;
+      const subject = `${event.brand.toUpperCase()} | ${escalationTag}${performanceSubjectTagSegment} | ${Number(metricValue).toFixed(2)}${performanceDeltaSegment} | 0-${endHour}h`;
 
       console.log(
         `   📧 [PERFORMANCE] Sending email to PERFORMANCE_EMAIL_IDS: ${JSON.stringify(performanceRecipients)}`,
