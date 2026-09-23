@@ -1,0 +1,434 @@
+2026-09-23 16:33:32,941 [INFO] ============================================================
+2026-09-23 16:33:32,941 [INFO] Discount Monitor started - 2026-09-23 16:33:32
+2026-09-23 16:33:32,941 [INFO] ============================================================
+2026-09-23 16:33:32,941 [INFO] 
+[BBB] Processing...
+2026-09-23 16:33:33,006 [ERROR] [BBB] Failed: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+Traceback (most recent call last):
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\connection_cext.py", line 354, in _open_connection
+    self._cmysql.connect(**cnx_kwargs)
+_mysql_connector.MySQLInterfaceError: Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\alokk\OneDrive\Desktop\data-scripts-main\discount_monitor\run.py", line 52, in process_brand
+    conn = get_connection(db_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alokk\OneDrive\Desktop\data-scripts-main\discount_monitor\db.py", line 11, in get_connection
+    return mysql.connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\pooling.py", line 322, in connect
+    return CMySQLConnection(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\connection_cext.py", line 142, in __init__
+    self.connect(**kwargs)
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\abstracts.py", line 1604, in connect
+    self._open_connection()
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\connection_cext.py", line 360, in _open_connection
+    raise get_mysql_exception(
+mysql.connector.errors.DatabaseError: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-09-23 16:33:33,009 [INFO] 
+[TMC] Processing...
+2026-09-23 16:33:33,012 [ERROR] [TMC] Failed: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+Traceback (most recent call last):
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\connection_cext.py", line 354, in _open_connection
+    self._cmysql.connect(**cnx_kwargs)
+_mysql_connector.MySQLInterfaceError: Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\alokk\OneDrive\Desktop\data-scripts-main\discount_monitor\run.py", line 52, in process_brand
+    conn = get_connection(db_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alokk\OneDrive\Desktop\data-scripts-main\discount_monitor\db.py", line 11, in get_connection
+    return mysql.connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\pooling.py", line 322, in connect
+    return CMySQLConnection(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\connection_cext.py", line 142, in __init__
+    self.connect(**kwargs)
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\abstracts.py", line 1604, in connect
+    self._open_connection()
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\connection_cext.py", line 360, in _open_connection
+    raise get_mysql_exception(
+mysql.connector.errors.DatabaseError: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-09-23 16:33:33,014 [INFO] 
+[PTS] Processing...
+2026-09-23 16:33:33,016 [ERROR] [PTS] Failed: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+Traceback (most recent call last):
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\connection_cext.py", line 354, in _open_connection
+    self._cmysql.connect(**cnx_kwargs)
+_mysql_connector.MySQLInterfaceError: Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\alokk\OneDrive\Desktop\data-scripts-main\discount_monitor\run.py", line 52, in process_brand
+    conn = get_connection(db_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alokk\OneDrive\Desktop\data-scripts-main\discount_monitor\db.py", line 11, in get_connection
+    return mysql.connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\pooling.py", line 322, in connect
+    return CMySQLConnection(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\connection_cext.py", line 142, in __init__
+    self.connect(**kwargs)
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\abstracts.py", line 1604, in connect
+    self._open_connection()
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\connection_cext.py", line 360, in _open_connection
+    raise get_mysql_exception(
+mysql.connector.errors.DatabaseError: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-09-23 16:33:33,018 [INFO] 
+[VAMA] Processing...
+2026-09-23 16:33:33,018 [ERROR] [VAMA] Failed: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+Traceback (most recent call last):
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\connection_cext.py", line 354, in _open_connection
+    self._cmysql.connect(**cnx_kwargs)
+_mysql_connector.MySQLInterfaceError: Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\alokk\OneDrive\Desktop\data-scripts-main\discount_monitor\run.py", line 52, in process_brand
+    conn = get_connection(db_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alokk\OneDrive\Desktop\data-scripts-main\discount_monitor\db.py", line 11, in get_connection
+    return mysql.connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\pooling.py", line 322, in connect
+    return CMySQLConnection(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\connection_cext.py", line 142, in __init__
+    self.connect(**kwargs)
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\abstracts.py", line 1604, in connect
+    self._open_connection()
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\connection_cext.py", line 360, in _open_connection
+    raise get_mysql_exception(
+mysql.connector.errors.DatabaseError: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-09-23 16:33:33,021 [INFO] 
+[AJMAL] Processing...
+2026-09-23 16:33:33,022 [ERROR] [AJMAL] Failed: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+Traceback (most recent call last):
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\connection_cext.py", line 354, in _open_connection
+    self._cmysql.connect(**cnx_kwargs)
+_mysql_connector.MySQLInterfaceError: Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\alokk\OneDrive\Desktop\data-scripts-main\discount_monitor\run.py", line 52, in process_brand
+    conn = get_connection(db_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alokk\OneDrive\Desktop\data-scripts-main\discount_monitor\db.py", line 11, in get_connection
+    return mysql.connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\pooling.py", line 322, in connect
+    return CMySQLConnection(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\connection_cext.py", line 142, in __init__
+    self.connect(**kwargs)
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\abstracts.py", line 1604, in connect
+    self._open_connection()
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\connection_cext.py", line 360, in _open_connection
+    raise get_mysql_exception(
+mysql.connector.errors.DatabaseError: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-09-23 16:33:33,024 [INFO] DISCOUNT SNAPSHOT — 23 Sep 2026, 16:33
+2026-09-23 16:33:33,024 [INFO] 0 brands checked | 0 flagged | 0 normal
+2026-09-23 16:33:33,034 [INFO] Skipped (low traffic / error): BBB, TMC, PTS, VAMA, AJMAL
+2026-09-23 16:33:33,034 [INFO] Discount Monitor finished.
+
+2026-09-23 16:34:29,133 [INFO] ============================================================
+2026-09-23 16:34:29,133 [INFO] Discount Monitor started - 2026-09-23 16:34:29
+2026-09-23 16:34:29,133 [INFO] ============================================================
+2026-09-23 16:34:29,133 [INFO] 
+[BBB] Processing...
+2026-09-23 16:34:29,217 [ERROR] [BBB] Failed: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+Traceback (most recent call last):
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\connection_cext.py", line 354, in _open_connection
+    self._cmysql.connect(**cnx_kwargs)
+_mysql_connector.MySQLInterfaceError: Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\alokk\OneDrive\Desktop\data-scripts-main\discount_monitor\run.py", line 52, in process_brand
+    conn = get_connection(db_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alokk\OneDrive\Desktop\data-scripts-main\discount_monitor\db.py", line 11, in get_connection
+    return mysql.connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\pooling.py", line 322, in connect
+    return CMySQLConnection(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\connection_cext.py", line 142, in __init__
+    self.connect(**kwargs)
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\abstracts.py", line 1604, in connect
+    self._open_connection()
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\connection_cext.py", line 360, in _open_connection
+    raise get_mysql_exception(
+mysql.connector.errors.DatabaseError: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-09-23 16:34:29,230 [INFO] 
+[TMC] Processing...
+2026-09-23 16:34:29,231 [ERROR] [TMC] Failed: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+Traceback (most recent call last):
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\connection_cext.py", line 354, in _open_connection
+    self._cmysql.connect(**cnx_kwargs)
+_mysql_connector.MySQLInterfaceError: Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\alokk\OneDrive\Desktop\data-scripts-main\discount_monitor\run.py", line 52, in process_brand
+    conn = get_connection(db_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alokk\OneDrive\Desktop\data-scripts-main\discount_monitor\db.py", line 11, in get_connection
+    return mysql.connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\pooling.py", line 322, in connect
+    return CMySQLConnection(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\connection_cext.py", line 142, in __init__
+    self.connect(**kwargs)
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\abstracts.py", line 1604, in connect
+    self._open_connection()
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\connection_cext.py", line 360, in _open_connection
+    raise get_mysql_exception(
+mysql.connector.errors.DatabaseError: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-09-23 16:34:29,232 [INFO] 
+[PTS] Processing...
+2026-09-23 16:34:29,235 [ERROR] [PTS] Failed: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+Traceback (most recent call last):
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\connection_cext.py", line 354, in _open_connection
+    self._cmysql.connect(**cnx_kwargs)
+_mysql_connector.MySQLInterfaceError: Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\alokk\OneDrive\Desktop\data-scripts-main\discount_monitor\run.py", line 52, in process_brand
+    conn = get_connection(db_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alokk\OneDrive\Desktop\data-scripts-main\discount_monitor\db.py", line 11, in get_connection
+    return mysql.connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\pooling.py", line 322, in connect
+    return CMySQLConnection(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\connection_cext.py", line 142, in __init__
+    self.connect(**kwargs)
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\abstracts.py", line 1604, in connect
+    self._open_connection()
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\connection_cext.py", line 360, in _open_connection
+    raise get_mysql_exception(
+mysql.connector.errors.DatabaseError: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-09-23 16:34:29,239 [INFO] 
+[VAMA] Processing...
+2026-09-23 16:34:29,241 [ERROR] [VAMA] Failed: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+Traceback (most recent call last):
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\connection_cext.py", line 354, in _open_connection
+    self._cmysql.connect(**cnx_kwargs)
+_mysql_connector.MySQLInterfaceError: Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\alokk\OneDrive\Desktop\data-scripts-main\discount_monitor\run.py", line 52, in process_brand
+    conn = get_connection(db_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alokk\OneDrive\Desktop\data-scripts-main\discount_monitor\db.py", line 11, in get_connection
+    return mysql.connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\pooling.py", line 322, in connect
+    return CMySQLConnection(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\connection_cext.py", line 142, in __init__
+    self.connect(**kwargs)
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\abstracts.py", line 1604, in connect
+    self._open_connection()
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\connection_cext.py", line 360, in _open_connection
+    raise get_mysql_exception(
+mysql.connector.errors.DatabaseError: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-09-23 16:34:29,242 [INFO] 
+[AJMAL] Processing...
+2026-09-23 16:34:29,246 [ERROR] [AJMAL] Failed: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+Traceback (most recent call last):
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\connection_cext.py", line 354, in _open_connection
+    self._cmysql.connect(**cnx_kwargs)
+_mysql_connector.MySQLInterfaceError: Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\alokk\OneDrive\Desktop\data-scripts-main\discount_monitor\run.py", line 52, in process_brand
+    conn = get_connection(db_name)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alokk\OneDrive\Desktop\data-scripts-main\discount_monitor\db.py", line 11, in get_connection
+    return mysql.connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\pooling.py", line 322, in connect
+    return CMySQLConnection(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\connection_cext.py", line 142, in __init__
+    self.connect(**kwargs)
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\abstracts.py", line 1604, in connect
+    self._open_connection()
+  File "C:\Users\alokk\AppData\Local\Programs\Python\Python311\Lib\site-packages\mysql\connector\connection_cext.py", line 360, in _open_connection
+    raise get_mysql_exception(
+mysql.connector.errors.DatabaseError: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-09-23 16:34:29,248 [INFO] DISCOUNT SNAPSHOT — 23 Sep 2026, 16:34
+2026-09-23 16:34:29,248 [INFO] 0 brands checked | 0 flagged | 0 normal
+2026-09-23 16:34:29,259 [INFO] Skipped (low traffic / error): BBB, TMC, PTS, VAMA, AJMAL
+2026-09-23 16:34:29,259 [INFO] Discount Monitor finished.
+
+2026-09-23 16:38:15,249 [INFO] ============================================================
+2026-09-23 16:38:15,249 [INFO] Discount Monitor started - 2026-09-23 16:38:15
+2026-09-23 16:38:15,249 [INFO] ============================================================
+2026-09-23 16:38:15,249 [INFO] 
+[BBB] Processing...
+2026-09-23 16:38:17,822 [INFO] [BBB] No alerts this run.
+2026-09-23 16:38:17,855 [INFO] 
+[TMC] Processing...
+2026-09-23 16:38:28,292 [INFO]   Skipping top-code: 143 unique codes across 937 discounted orders looks auto-generated, not campaign codes.
+2026-09-23 16:38:29,190 [INFO] 
+[PTS] Processing...
+2026-09-23 16:38:31,585 [INFO] [PTS] No alerts this run.
+2026-09-23 16:38:31,615 [INFO] 
+[VAMA] Processing...
+2026-09-23 16:38:33,676 [INFO] 
+[AJMAL] Processing...
+2026-09-23 16:38:34,759 [INFO] [AJMAL] No alerts this run.
+2026-09-23 16:38:34,781 [INFO] DISCOUNT SNAPSHOT — 23 Sep 2026, 16:38
+2026-09-23 16:38:34,781 [INFO] 5 brands checked | 2 flagged | 3 normal
+2026-09-23 16:38:34,836 [INFO] 
+2026-09-23 16:38:34,886 [INFO] 
+2026-09-23 16:38:34,892 [INFO]     codes   TMCPTLW699HT 33%, TMCZMT699VT05 12%, TMCFK4A549ALKL 7%, TMCFK5A699MNTS 5%, Custom discount 4%
+2026-09-23 16:38:34,892 [INFO] 
+2026-09-23 16:38:34,906 [INFO]     codes   TMCFK4A549ALKL 84%, TMCFK4A549MNIO 9%, TMCFK4A549HNKN 5%, TMCFK4A549MCHK 1%, TMCFK4A549MNOI 1%
+2026-09-23 16:38:34,906 [INFO] 
+2026-09-23 16:38:34,925 [INFO] 
+2026-09-23 16:38:34,925 [INFO] Top code : free gift — 54% of discounted orders, 91% of discount amount
+2026-09-23 16:38:34,925 [INFO] 
+2026-09-23 16:38:34,946 [INFO] 
+2026-09-23 16:38:34,949 [INFO]     codes   free gift 95% amt (60% orders), PREPAID-DISCOUNT 5% amt (40% orders)
+2026-09-23 16:38:34,949 [INFO] 
+2026-09-23 16:38:34,955 [INFO] Normal: BBB, PTS, AJMAL
+2026-09-23 16:38:34,955 [INFO] Discount Monitor finished.
+
+2026-09-23 16:40:09,383 [INFO] ============================================================
+2026-09-23 16:40:09,383 [INFO] Discount Monitor started - 2026-09-23 16:40:09
+2026-09-23 16:40:09,383 [INFO] ============================================================
+2026-09-23 16:40:09,383 [INFO] 
+[BBB] Processing...
+2026-09-23 16:40:11,566 [INFO] [BBB] No alerts this run.
+2026-09-23 16:40:11,601 [INFO] 
+[TMC] Processing...
+2026-09-23 16:40:15,105 [INFO]   Skipping top-code: 142 unique codes across 932 discounted orders looks auto-generated, not campaign codes.
+2026-09-23 16:40:16,117 [INFO] 
+[PTS] Processing...
+2026-09-23 16:40:17,987 [INFO] [PTS] No alerts this run.
+2026-09-23 16:40:18,017 [INFO] 
+[VAMA] Processing...
+2026-09-23 16:40:20,003 [INFO] 
+[AJMAL] Processing...
+2026-09-23 16:40:21,358 [INFO] [AJMAL] No alerts this run.
+2026-09-23 16:40:21,388 [INFO] DISCOUNT SNAPSHOT - 23 Sep 2026, 16:40
+2026-09-23 16:40:21,389 [INFO] 5 brands checked | 2 flagged | 3 normal
+2026-09-23 16:40:21,389 [INFO] --------------------------------------------------
+2026-09-23 16:40:21,389 [INFO] [WATCH] TMC
+2026-09-23 16:40:21,391 [INFO] Discount amount   Rs 30.59L   (baseline Rs 1.75L)   delta +1644%
+2026-09-23 16:40:21,391 [INFO] Sales             Rs 7.89L   (baseline Rs 54,682)   delta +1344%
+2026-09-23 16:40:21,391 [INFO] Discount rate     387.5%   (baseline 320.9%)   delta +21%
+2026-09-23 16:40:21,391 [INFO]   -> discount amount rising far faster than sales
+2026-09-23 16:40:21,391 [INFO] 
+2026-09-23 16:40:21,392 [INFO] UTM source share of today's discount (baseline -> today, delta)
+2026-09-23 16:40:21,392 [INFO]   FK549A     8.7% -> 17.7%   delta +102%  <FLAGGED>
+2026-09-23 16:40:21,392 [INFO]   direct     1.7% -> 10.1%   delta +484%  <FLAGGED>
+2026-09-23 16:40:21,392 [INFO]   FK699      8.2% -> 8.5%   delta +4%
+2026-09-23 16:40:21,392 [INFO]   FK499      8.5% -> 8.0%   delta -6%
+2026-09-23 16:40:21,392 [INFO]   FlipkartSC 6.5% -> 7.3%   delta +12%
+2026-09-23 16:40:21,392 [INFO] 
+2026-09-23 16:40:21,392 [INFO] -> direct / campaign Unknown - 100.0% -> 99.1% of direct's discount   delta -1%
+2026-09-23 16:40:21,392 [INFO]     codes   TMCPTLW699HT 33%, TMCZMT699VT05 12%, TMCFK4A549ALKL 7%, TMCFK5A699MNTS 5%, Custom discount 4%
+2026-09-23 16:40:21,392 [INFO] 
+2026-09-23 16:40:21,392 [INFO] -> FK549A / campaign Alliance - 100.0% -> 100.0% of FK549A's discount   delta +0%
+2026-09-23 16:40:21,392 [INFO]     codes   TMCFK4A549ALKL 84%, TMCFK4A549MNIO 9%, TMCFK4A549HNKN 5%, TMCFK4A549MCHK 1%, TMCFK4A549MNOI 1%
+2026-09-23 16:40:21,392 [INFO] 
+2026-09-23 16:40:21,392 [INFO] [WATCH] VAMA
+2026-09-23 16:40:21,392 [INFO] Discount amount   Rs 36,001   (baseline Rs 6,027)   delta +497%
+2026-09-23 16:40:21,392 [INFO] Sales             Rs 1.39L   (baseline Rs 24,336)   delta +469%
+2026-09-23 16:40:21,392 [INFO] Discount rate     26.0%   (baseline 24.8%)   delta +5%
+2026-09-23 16:40:21,392 [INFO]   -> discount amount rising far faster than sales
+2026-09-23 16:40:21,392 [INFO] 
+2026-09-23 16:40:21,392 [INFO] Top code : free gift - 54% of discounted orders, 91% of discount amount
+2026-09-23 16:40:21,392 [INFO] 
+2026-09-23 16:40:21,399 [INFO] UTM source share of today's discount (baseline -> today, delta)
+2026-09-23 16:40:21,399 [INFO]   meta       55.3% -> 58.5%   delta +6%
+2026-09-23 16:40:21,400 [INFO]   MetaAds    8.7% -> 14.1%   delta +62%  <FLAGGED>
+2026-09-23 16:40:21,400 [INFO]   direct     14.7% -> 9.4%   delta -36%
+2026-09-23 16:40:21,400 [INFO]   google     6.0% -> 5.8%   delta -3%
+2026-09-23 16:40:21,400 [INFO]   facebook   8.9% -> 5.6%   delta -37%
+2026-09-23 16:40:21,400 [INFO] 
+2026-09-23 16:40:21,400 [INFO] -> MetaAds / campaign Sanwariya_Seth_Idol_UGC_Shefali_crorepati_050826 - 0.0% -> 38.2% of MetaAds's discount   delta new
+2026-09-23 16:40:21,400 [INFO]     codes   free gift 95% amt (60% orders), PREPAID-DISCOUNT 5% amt (40% orders)
+2026-09-23 16:40:21,400 [INFO] 
+2026-09-23 16:40:21,400 [INFO] --------------------------------------------------
+2026-09-23 16:40:21,400 [INFO] Normal: BBB, PTS, AJMAL
+2026-09-23 16:40:21,400 [INFO] Discount Monitor finished.
+
+2026-09-23 17:01:09,782 [INFO] ============================================================
+2026-09-23 17:01:09,782 [INFO] Discount Monitor started - 2026-09-23 17:01:09
+2026-09-23 17:01:09,782 [INFO] ============================================================
+2026-09-23 17:01:09,782 [INFO] 
+[BBB] Processing...
+2026-09-23 17:01:11,340 [INFO] [BBB] No alerts this run.
+2026-09-23 17:01:11,372 [INFO] 
+[PTS] Processing...
+2026-09-23 17:01:12,779 [INFO] [PTS] No alerts this run.
+2026-09-23 17:01:12,815 [INFO] 
+[VAMA] Processing...
+2026-09-23 17:01:13,693 [INFO] [VAMA] No alerts this run.
+2026-09-23 17:01:13,734 [INFO] 
+[AJMAL] Processing...
+2026-09-23 17:01:14,623 [INFO] [AJMAL] No alerts this run.
+2026-09-23 17:01:14,652 [INFO] DISCOUNT SNAPSHOT - 23 Sep 2026, 17:01
+2026-09-23 17:01:14,652 [INFO] 4 brands checked | 0 flagged | 4 normal
+2026-09-23 17:01:14,652 [INFO] --------------------------------------------------
+2026-09-23 17:01:14,652 [INFO] --------------------------------------------------
+2026-09-23 17:01:14,652 [INFO] Normal: BBB, PTS, VAMA, AJMAL
+2026-09-23 17:01:14,664 [INFO] Discount Monitor finished.
+
+2026-09-23 17:05:42,671 [INFO] ============================================================
+2026-09-23 17:05:42,676 [INFO] Discount Monitor started - 2026-09-23 17:05:42
+2026-09-23 17:05:42,676 [INFO] ============================================================
+2026-09-23 17:05:42,676 [INFO] 
+[BBB] Processing...
+2026-09-23 17:05:44,684 [INFO] [BBB] No alerts this run.
+2026-09-23 17:05:44,716 [INFO] 
+[PTS] Processing...
+2026-09-23 17:05:46,978 [INFO] [PTS] No alerts this run.
+2026-09-23 17:05:47,050 [INFO] 
+[VAMA] Processing...
+2026-09-23 17:05:48,026 [INFO] [VAMA] No alerts this run.
+2026-09-23 17:05:48,058 [INFO] 
+[AJMAL] Processing...
+2026-09-23 17:05:49,110 [INFO] [AJMAL] No alerts this run.
+2026-09-23 17:05:49,143 [INFO] DISCOUNT SNAPSHOT - 23 Sep 2026, 17:05
+2026-09-23 17:05:49,143 [INFO] 4 brands checked | 0 flagged | 4 normal
+2026-09-23 17:05:49,143 [INFO] --------------------------------------------------
+2026-09-23 17:05:49,143 [INFO] --------------------------------------------------
+2026-09-23 17:05:49,143 [INFO] Normal: BBB, PTS, VAMA, AJMAL
+2026-09-23 17:05:49,143 [INFO] Discount Monitor finished.
+
+2026-09-23 18:14:24,165 [INFO] ============================================================
+2026-09-23 18:14:24,184 [INFO] Discount Monitor started - 2026-09-23 18:14:24
+2026-09-23 18:14:24,184 [INFO] ============================================================
+2026-09-23 18:14:24,184 [INFO] 
+[BBB] Processing...
+2026-09-23 18:14:27,081 [INFO] [BBB] No alerts this run.
+2026-09-23 18:14:27,126 [INFO] Discount monitor JSON payload prepared: brands=1 flagged=0 alerts=0 dry_run=True
+2026-09-23 18:14:27,127 [INFO] Discount Monitor finished.
+

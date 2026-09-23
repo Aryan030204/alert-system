@@ -2,9 +2,11 @@ require("dotenv").config({ path: "./.env" });
 const express = require("express");
 const { Receiver } = require("@upstash/qstash");
 const { startCodMonitorScheduler } = require("./codMonitorScheduler");
+const { startDiscountMonitorScheduler } = require("./discountMonitorScheduler");
 const {
   processIncomingEvent,
   processCodMonitorResults,
+  processDiscountMonitorResults,
   getAllRules,
   TEST_MODE,
   TEST_EMAIL,
@@ -30,6 +32,7 @@ app.get("/rules", async (req, res) => {
 });
 
 startCodMonitorScheduler();
+startDiscountMonitorScheduler();
 
 app.post("/cod-monitor/results", express.json(), async (req, res) => {
   try {
@@ -37,6 +40,16 @@ app.post("/cod-monitor/results", express.json(), async (req, res) => {
     return res.status(200).json(result);
   } catch (err) {
     console.error("COD monitor webhook error:", err.message);
+    return res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/discount-monitor/results", express.json(), async (req, res) => {
+  try {
+    const result = await processDiscountMonitorResults(req.body);
+    return res.status(200).json(result);
+  } catch (err) {
+    console.error("Discount monitor webhook error:", err.message);
     return res.status(400).json({ error: err.message });
   }
 });
