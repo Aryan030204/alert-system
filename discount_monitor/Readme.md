@@ -29,7 +29,7 @@ Schedule with cron (every 10-30 min):
 
 | Alert | Trigger |
 |---|---|
-| **DISCOUNT_RATE_SPIKE** | `discount_amount / gross_sales` today is up ≥25% (relative) vs its 7-day same-window baseline |
+| **DISCOUNT_RATE_SPIKE** | `discount_amount / gross_sales` today is up ≥10% (relative) vs its 7-day same-window baseline |
 | **DISCOUNT_OUTPACING_SALES** | discount amount growth is meaningfully ahead of sales growth (both computed the same way) — margin give-away accelerating faster than revenue |
 
 **Every delta everywhere** = `(current - baseline) / baseline * 100`. No percentage-point deltas.

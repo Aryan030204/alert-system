@@ -77,22 +77,22 @@ THRESHOLDS = {
     # Alert 1: discount rate spike (discount_amount / gross_sales)
     # fires when current discount rate is this much HIGHER than baseline,
     # relative: (current - baseline) / baseline * 100
-    "discount_rate_delta_pct": 25,
+    "discount_rate_delta_pct": 10,
 
     # Alert 2: discount amount growing faster than sales
     # both growth numbers use the same (current-baseline)/baseline*100 formula.
     # fires when discount growth exceeds sales growth by at least this gap,
     # AND discount growth itself is at least this significant (avoids noise
     # when both are basically flat).
-    "outpace_gap_pct": 15,
-    "outpace_min_discount_growth_pct": 15,
+    "outpace_gap_pct": 10,
+    "outpace_min_discount_growth_pct": 10,
 
     # Alert 3: discount USAGE rate spike (discounted_orders / total_orders)
     # distinct from Alert 1 -- a brand can have flat/lower discount AMOUNT
     # while more orders are using a code (smaller discounts, wider net).
     # Caught the AJMAL 9-Jun case: usage rate +20.5% vs baseline while
     # discount amount was actually flat/down -- Alert 1 alone missed it.
-    "usage_rate_delta_pct": 20,
+    "usage_rate_delta_pct": 10,
 
     # Alert 4: a discount code with (near) zero baseline presence suddenly
     # taking a real share of today's discounted orders.
