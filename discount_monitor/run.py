@@ -16,7 +16,8 @@ import argparse
 import json
 import logging
 import sys
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 
 from config import BRANDS
 from db import ensure_alerts_table, get_connection
@@ -30,6 +31,7 @@ from detect import (
     utm_source_breakdown,
     campaign_drill,
 )
+from fetch import fetch_kpis
 from format import format_digest
 from notify import print_digest, send_digest_email
 
@@ -68,6 +70,36 @@ def parse_args():
         help="Emit the final run payload as JSON to stdout for machine processing",
     )
     return parser.parse_args()
+
+
+HARD_ALERTS = {"DISCOUNT_RATE_SPIKE", "USAGE_RATE_SPIKE", "NEW_CODE"}
+
+
+def _json_safe(value):
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, Decimal):
+        return int(value) if value == value.to_integral_value() else float(value)
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    return value
+
+
+def _brand_result_payload(result: dict) -> dict:
+    """Structured per-brand data for the Node email builder."""
+    return {
+        "brand": result["snapshot"]["brand"],
+        "tier": "ALERT" if HARD_ALERTS & set(result["alerts_fired"]) else "WATCH",
+        "alerts_fired": result["alerts_fired"],
+        "snapshot": result["snapshot"],
+        "top_code": result.get("top_code"),
+        "new_codes": result.get("new_codes", []),
+        "utm_rows": result.get("utm_rows", []),
+        "flagged_sources": result.get("flagged_sources", []),
+        "kpis": result.get("kpis"),
+    }
 
 
 def _metric_for_alert_type(snapshot, alert_type, new_codes=None):
@@ -130,6 +162,7 @@ def process_brand(brand_name: str, db_name: str):
             "new_codes": new_codes if "NEW_CODE" in active_alerts else [],
             "utm_rows": utm_rows,
             "flagged_sources": flagged_sources,
+            "kpis": fetch_kpis(conn),
         }
         return "flagged", result
 
@@ -188,12 +221,13 @@ def run_monitor(brand_filter=None, dry_run=False, json_output=False):
             "flagged_brands": [r["snapshot"]["brand"] for r in flagged_results],
             "normal_brands": normal_brands,
             "skipped_brands": skipped_brands,
+            "brand_results": [_brand_result_payload(r) for r in flagged_results],
         }
         log.info(
             "Discount monitor JSON payload prepared: brands=%d flagged=%d alerts=%d dry_run=%s",
             len(brands_to_run), len(flagged_results), total_alerts, dry_run,
         )
-        print(json.dumps(payload))
+        print(json.dumps(_json_safe(payload)))
     else:
         print_digest(digest)
         if dry_run:

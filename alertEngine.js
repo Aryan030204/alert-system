@@ -4,6 +4,7 @@ const nodemailer = require("nodemailer");
 const { MongoClient } = require("mongodb");
 const { normalizeAlertFiredEvent } = require("./utils/alertFiredEventNormalizer");
 const { rabbitmqPublisher } = require("./utils/rabbitmqPublisher");
+const { buildDiscountMonitorEmail } = require("./utils/discountMonitorEmail");
 let mongoClient = null;
 
 // Superseded by getPerformanceMetricsFromMySQL() — daily_web_vitals_summary (MySQL) is
@@ -2780,47 +2781,9 @@ async function processCodMonitorResults(payload) {
    Discount Monitor integration (discount_monitor/run.py --json-output)
    Mirrors the COD monitor bridge: Python does the detection/thresholds
    and its own per-brand+alert_type cooldown (via discount_alerts table);
-   Node just relays the pre-built ASCII digest as a single email per run.
+   Node renders the structured brand_results into one readable email per run
+   (see utils/discountMonitorEmail.js).
 --------------------------------------------------------*/
-function buildDiscountMonitorEmail(body) {
-  const runDate = body.run_date || "unknown";
-  const flaggedCount = Number(body.flagged_count || 0);
-  const flaggedBrands = Array.isArray(body.flagged_brands) ? body.flagged_brands : [];
-  const subject = `[Discount Monitor] ${runDate} | ${flaggedCount} brand${flaggedCount === 1 ? "" : "s"} flagged${
-    flaggedBrands.length ? `: ${flaggedBrands.join(", ")}` : ""
-  }`;
-
-  const digestText = String(body.digest_text || "No digest available.");
-  const html = `
-  <html>
-  <body style="margin:0; padding:0; background:#f4f6fb; font-family:Arial, sans-serif;">
-    <div style="max-width:820px; margin:30px auto; background:#ffffff;
-      border-radius:12px; overflow:hidden; box-shadow:0 6px 25px rgba(0,0,0,0.08);">
-
-      <div style="background:#dc2626; padding:26px 32px; color:#ffffff;">
-        <h2 style="margin:0; font-size:24px; font-weight:600;">🏷️ Discount Monitor</h2>
-        <p style="margin:6px 0 0; font-size:14px; opacity:0.9;">
-          ${flaggedCount} brand${flaggedCount === 1 ? "" : "s"} flagged on ${escapeHtml(runDate)}.
-        </p>
-      </div>
-
-      <div style="padding:30px;">
-        <pre style="margin:0; background:#f9fafb; border:1px solid #e5e7eb; border-radius:10px; padding:18px; font-family:'Courier New',monospace; font-size:13px; line-height:1.5; color:#111827; white-space:pre-wrap; word-break:break-word;">${escapeHtml(digestText)}</pre>
-      </div>
-
-      <div style="background:#f3f4f6; padding:14px; text-align:center;">
-        <span style="font-size:12px; color:#6b7280;">
-          © ${new Date().getFullYear()} Datum Inc.
-        </span>
-      </div>
-    </div>
-  </body>
-  </html>
-  `;
-
-  return { subject, html };
-}
-
 async function sendDiscountMonitorEmail(body) {
   const recipients = TEST_MODE ? [TEST_EMAIL] : parseJsonArrayEnv("DISCOUNT_ALERT_IDS");
   if (!recipients.length) {
@@ -2828,7 +2791,14 @@ async function sendDiscountMonitorEmail(body) {
     return { attempted: 0, sent: 0 };
   }
 
-  const { subject, html } = buildDiscountMonitorEmail(body);
+  const istHour = Number(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Kolkata",
+      hour: "2-digit",
+      hour12: false,
+    }).format(new Date()),
+  );
+  const { subject, html } = buildDiscountMonitorEmail(body, { istHour });
   const finalSubject = TEST_MODE ? `[TEST] ${subject}` : subject;
   await sendEmail({ to: recipients }, finalSubject, html);
   return { attempted: 1, sent: 1 };

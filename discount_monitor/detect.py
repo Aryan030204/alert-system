@@ -7,7 +7,6 @@
 # =============================================================
 
 import logging
-from datetime import datetime, timedelta
 
 from config import ENABLED_ALERT_TYPES, THRESHOLDS
 from fetch import (
@@ -39,21 +38,21 @@ def pct_delta(current: float, baseline: float):
 # -- Cooldown / storage --------------------------------------------------
 
 def is_on_cooldown(conn, brand: str, alert_type: str) -> bool:
+    # Compared inside the DB: alert_time is written with the DB's NOW(), so the
+    # comparison must use that same clock, not the app machine's timezone.
     cursor = conn.cursor(dictionary=True)
     cursor.execute(
         """
-        SELECT MAX(alert_time) AS last_alert
+        SELECT MAX(alert_time) IS NOT NULL
+               AND NOW() < DATE_ADD(MAX(alert_time), INTERVAL %s HOUR) AS on_cooldown
         FROM discount_alerts
         WHERE brand = %s AND alert_type = %s
         """,
-        (brand, alert_type),
+        (THRESHOLDS["alert_cooldown_hrs"], brand, alert_type),
     )
     row = cursor.fetchone()
     cursor.close()
-    if row and row["last_alert"]:
-        cooldown_until = row["last_alert"] + timedelta(hours=THRESHOLDS["alert_cooldown_hrs"])
-        return datetime.now() < cooldown_until
-    return False
+    return bool(row and row["on_cooldown"])
 
 
 def store_alert(conn, brand, alert_type, current_value, baseline_value, delta_pct, message):

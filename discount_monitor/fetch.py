@@ -11,7 +11,7 @@
 # fixed rolling window.
 #
 # `as_of` param: every function defaults to None, which means "use the
-# real NOW()/CURDATE()" -- run.py never passes it, so live behavior is
+# real IST now" -- run.py never passes it, so live behavior is
 # unchanged. Passing a 'YYYY-MM-DD HH:MM:SS' string instead makes the
 # same functions replay as-of that timestamp, which is what
 # test_day.py uses to validate a past day through this exact pipeline.
@@ -33,20 +33,27 @@ from config import THRESHOLDS
 log = logging.getLogger(__name__)
 
 
+# The DB server clock is UTC, but order timestamps (created_at) and
+# hour_wise_sales dates/hours are IST. "Now" must therefore be IST (UTC + 5:30),
+# not NOW()/CURDATE(): with NOW() the "today so far" window was cut off ~5.5h
+# behind real time, and between 00:00 and 05:30 IST CURDATE() was still yesterday.
+IST_NOW_SQL = "DATE_ADD(UTC_TIMESTAMP(), INTERVAL 330 MINUTE)"
+
+
 def _as_of_sql(as_of):
     """Return (date_literal_sql, datetime_literal_sql) for use inline in
-    a query. None -> the real CURDATE()/NOW(). A 'YYYY-MM-DD HH:MM:SS'
+    a query. None -> the real IST date/now. A 'YYYY-MM-DD HH:MM:SS'
     string -> that fixed point in time, quoted as a literal."""
     if as_of is None:
-        return "CURDATE()", "NOW()"
+        return f"DATE({IST_NOW_SQL})", IST_NOW_SQL
     return f"'{as_of[:10]}'", f"'{as_of}'"
 
 
 def _as_of_time_sql(as_of):
-    """Return the TIME(...) comparison literal: real TIME(NOW()) or the
-    fixed as_of's time-of-day."""
+    """Return the TIME(...) comparison literal: the real IST time-of-day or
+    the fixed as_of's time-of-day."""
     if as_of is None:
-        return "TIME(NOW())"
+        return f"TIME({IST_NOW_SQL})"
     return f"'{as_of[11:19]}'"
 
 
@@ -117,6 +124,94 @@ def fetch_baseline_totals(conn, as_of: str = None) -> dict:
         "discount_amount": sum(float(r["discount_amount"] or 0) for r in rows) / n,
         "gross_sales": sum(float(r["gross_sales"] or 0) for r in rows) / n,
     }
+
+
+# -- Day-to-date KPI cards (for the alert email) ------------------------
+
+def fetch_kpis(conn, as_of: str = None):
+    """Day-to-date KPIs from hour_wise_sales for the alert's date: total
+    sales, orders, sessions, ATC sessions, plus derived CVR and AOV.
+    Returns None on any failure so a KPI problem never blocks the alert
+    itself (the email simply omits the cards)."""
+    # The DB server clock is UTC but hour_wise_sales dates/hours are IST, so the
+    # live path derives the IST clock explicitly (UTC + 5:30) instead of using
+    # CURDATE()/NOW().
+    if as_of is None:
+        ist = IST_NOW_SQL
+        date_lit = f"DATE({ist})"
+        hour_lit = f"HOUR({ist})"
+        frac_lit = f"(MINUTE({ist}) / 60)"
+    else:
+        date_lit = f"'{as_of[:10]}'"
+        hour_lit = str(int(as_of[11:13]))
+        frac_lit = str(int(as_of[14:16]) / 60)
+    days = THRESHOLDS["baseline_days"]
+
+    def _sum_cols(weight_sql: str) -> str:
+        cols = [("total_sales", "total_sales"), ("number_of_orders", "orders"),
+                ("number_of_sessions", "sessions"), ("number_of_atc_sessions", "atc_sessions")]
+        return ",\n".join(
+            f"COALESCE(SUM(CASE {weight_sql.format(col=col)} END), 0) AS {alias}" for col, alias in cols
+        )
+
+    # Today: every hour up to and including the current one (actual values).
+    today_weight = f"WHEN hour <= {hour_lit} THEN {{col}} ELSE 0"
+    # Baseline: full hours before the current one, plus the current hour
+    # prorated by minutes elapsed, so a partial hour today isn't compared
+    # against a full hour on prior days.
+    base_weight = f"WHEN hour < {hour_lit} THEN {{col}} WHEN hour = {hour_lit} THEN {{col}} * {frac_lit} ELSE 0"
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            f"SELECT {_sum_cols(today_weight)} FROM hour_wise_sales WHERE date = {date_lit}"
+        )
+        row = cursor.fetchone()
+        cursor.execute(
+            f"""
+            SELECT date, {_sum_cols(base_weight)}
+            FROM hour_wise_sales
+            WHERE date >= DATE_SUB({date_lit}, INTERVAL {days} DAY) AND date < {date_lit}
+            GROUP BY date
+            """
+        )
+        base_rows = cursor.fetchall()
+        cursor.close()
+    except Exception as exc:
+        log.warning("KPI fetch failed: %s", exc)
+        return None
+
+    def _build(total_sales, orders, sessions, atc_sessions):
+        return {
+            "total_sales": total_sales,
+            "orders": orders,
+            "sessions": sessions,
+            "atc_sessions": atc_sessions,
+            "cvr": (orders / sessions * 100) if sessions else None,
+            "aov": (total_sales / orders) if orders else None,
+        }
+
+    current = _build(
+        float(row["total_sales"] or 0), int(row["orders"] or 0),
+        int(row["sessions"] or 0), int(row["atc_sessions"] or 0),
+    )
+
+    n = len(base_rows)
+    baseline = None
+    deltas = {k: None for k in ("total_sales", "sessions", "atc_sessions", "cvr", "aov")}
+    if n:
+        baseline = _build(
+            sum(float(r["total_sales"] or 0) for r in base_rows) / n,
+            sum(float(r["orders"] or 0) for r in base_rows) / n,
+            sum(float(r["sessions"] or 0) for r in base_rows) / n,
+            sum(float(r["atc_sessions"] or 0) for r in base_rows) / n,
+        )
+        for key in deltas:
+            cur_v, base_v = current[key], baseline[key]
+            deltas[key] = ((cur_v - base_v) / base_v * 100) if (cur_v is not None and base_v) else None
+
+    current["baseline"] = baseline
+    current["deltas"] = deltas
+    return current
 
 
 # -- Generic grouped breakdown (by code / by utm_source / by campaign) -

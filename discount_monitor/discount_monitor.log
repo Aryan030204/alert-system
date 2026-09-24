@@ -432,3 +432,39 @@ mysql.connector.errors.DatabaseError: 2005 (HY000): Unknown MySQL server host 'm
 2026-09-23 18:14:27,126 [INFO] Discount monitor JSON payload prepared: brands=1 flagged=0 alerts=0 dry_run=True
 2026-09-23 18:14:27,127 [INFO] Discount Monitor finished.
 
+2026-09-24 14:00:03,317 [INFO] ============================================================
+2026-09-24 14:00:03,336 [INFO] Discount Monitor started - 2026-09-24 14:00:03
+2026-09-24 14:00:03,336 [INFO] ============================================================
+2026-09-24 14:00:03,336 [INFO] 
+[BBB] Processing...
+2026-09-24 14:00:05,478 [INFO] [BBB] No alerts this run.
+2026-09-24 14:00:05,562 [INFO] 
+[PTS] Processing...
+2026-09-24 14:00:06,514 [INFO] [PTS] No alerts this run.
+2026-09-24 14:00:06,574 [INFO] 
+[VAMA] Processing...
+2026-09-24 14:00:07,663 [INFO] [VAMA] No alerts this run.
+2026-09-24 14:00:07,730 [INFO] 
+[AJMAL] Processing...
+2026-09-24 14:00:10,633 [INFO] [AJMAL] No alerts this run.
+2026-09-24 14:00:10,858 [INFO] Discount monitor JSON payload prepared: brands=4 flagged=0 alerts=0 dry_run=True
+2026-09-24 14:00:10,860 [INFO] Discount Monitor finished.
+
+2026-09-24 14:19:30,195 [INFO] ============================================================
+2026-09-24 14:19:30,207 [INFO] Discount Monitor started - 2026-09-24 14:19:30
+2026-09-24 14:19:30,208 [INFO] ============================================================
+2026-09-24 14:19:30,208 [INFO] 
+[BBB] Processing...
+2026-09-24 14:19:31,910 [INFO] [BBB] No alerts this run.
+2026-09-24 14:19:31,955 [INFO] 
+[PTS] Processing...
+2026-09-24 14:19:34,132 [INFO]   Skipping top-code: 2 unique codes across 2 discounted orders looks auto-generated, not campaign codes.
+2026-09-24 14:19:35,470 [INFO] 
+[VAMA] Processing...
+2026-09-24 14:19:36,754 [INFO] [VAMA] No alerts this run.
+2026-09-24 14:19:36,811 [INFO] 
+[AJMAL] Processing...
+2026-09-24 14:19:38,066 [INFO] [AJMAL] No alerts this run.
+2026-09-24 14:19:38,137 [INFO] Discount monitor JSON payload prepared: brands=4 flagged=1 alerts=3 dry_run=False
+2026-09-24 14:19:38,139 [INFO] Discount Monitor finished.
+
