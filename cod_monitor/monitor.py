@@ -14,6 +14,7 @@ import logging
 from typing import Any
 
 from db import get_connection, run_query
+from kpis import fetch_kpis
 from queries import OVERALL_DOD_QUERY, product_baseline_query
 
 logger = logging.getLogger(__name__)
@@ -101,6 +102,7 @@ def process_brand(brand_name: str, brand_cfg: dict) -> dict[str, Any]:
         "overall_row": None,
         "product_rows": [],
         "alerts": [],
+        "kpis": None,
         "error": None,
     }
 
@@ -155,6 +157,10 @@ def process_brand(brand_name: str, brand_cfg: dict) -> dict[str, Any]:
                         brand_name,
                         missing,
                     )
+
+            # KPI cards for the alert email (only worth fetching when something fired)
+            if result["alerts"]:
+                result["kpis"] = fetch_kpis(conn)
 
     except Exception as exc:  # noqa: BLE001
         result["status"] = "error"

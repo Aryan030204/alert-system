@@ -186,6 +186,7 @@ def fetch_kpis(conn, as_of: str = None):
             "orders": orders,
             "sessions": sessions,
             "atc_sessions": atc_sessions,
+            "atc_rate": (atc_sessions / sessions * 100) if sessions else None,
             "cvr": (orders / sessions * 100) if sessions else None,
             "aov": (total_sales / orders) if orders else None,
         }
@@ -197,7 +198,7 @@ def fetch_kpis(conn, as_of: str = None):
 
     n = len(base_rows)
     baseline = None
-    deltas = {k: None for k in ("total_sales", "sessions", "atc_sessions", "cvr", "aov")}
+    deltas = {k: None for k in ("total_sales", "sessions", "atc_rate", "cvr", "aov")}
     if n:
         baseline = _build(
             sum(float(r["total_sales"] or 0) for r in base_rows) / n,

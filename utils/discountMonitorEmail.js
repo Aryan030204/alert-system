@@ -5,6 +5,8 @@
    Inline-styled tables only, for email-client compatibility.
 --------------------------------------------------------*/
 
+const { renderKpiCards } = require("./kpiCards");
+
 const C = {
   red: "#dc2626",
   amber: "#f59e0b",
@@ -47,6 +49,7 @@ function fmtAmount(x) {
 
 const fmtInt = (x) => (isNum(x) ? Math.round(x).toLocaleString("en-IN") : "—");
 const fmtPct = (x, digits = 1) => (isNum(x) ? `${x.toFixed(digits)}%` : "—");
+const fmtRate = (x) => (isNum(x) ? `${x.toFixed(Math.abs(x) < 1 ? 2 : 1)}%` : "—");
 const fmtDelta = (x) => (!isNum(x) ? "new" : `${x >= 0 ? "+" : ""}${x.toFixed(0)}%`);
 
 // upIsBad: discount metrics rising is a concern; sales rising is good.
@@ -74,13 +77,13 @@ function sortedAlerts(brandResult) {
 function alertExplanation(type, br) {
   const s = br.snapshot || {};
   if (type === "DISCOUNT_RATE_SPIKE") {
-    return `Discount rate is ${fmtPct(s.discount_rate_current)} vs ${fmtPct(s.discount_rate_baseline)} baseline (${fmtDelta(s.discount_rate_delta)}) — more of each sale is being given away.`;
+    return `Discount rate is ${fmtRate(s.discount_rate_current)} vs ${fmtRate(s.discount_rate_baseline)} baseline (${fmtDelta(s.discount_rate_delta)}) — more of each sale is being given away.`;
   }
   if (type === "USAGE_RATE_SPIKE") {
-    return `${fmtPct(s.usage_rate_current)} of orders used a discount vs ${fmtPct(s.usage_rate_baseline)} baseline (${fmtDelta(s.usage_rate_delta)}) — more orders are using a code, even if the amount looks flat.`;
+    return `${fmtRate(s.usage_rate_current)} of orders used a discount vs ${fmtRate(s.usage_rate_baseline)} baseline (${fmtDelta(s.usage_rate_delta)}) — more orders are using a code, even if the amount looks flat.`;
   }
   if (type === "DISCOUNT_OUTPACING_SALES") {
-    return `Discount amount is ${fmtDelta(s.discount_amount_delta)} vs baseline while sales are ${fmtDelta(s.sales_delta)} — discounts are growing faster than revenue.`;
+    return `Discount amount is ${fmtDelta(s.discount_amount_delta)} vs baseline while total sales are ${fmtDelta(s.sales_delta)} — discounts are growing faster than revenue.`;
   }
   if (type === "NEW_CODE") {
     const nc = (br.new_codes || [])[0];
@@ -125,38 +128,11 @@ function buildDiscountSubject(brandResults, istHour) {
 /* ---------- section renderers ---------- */
 
 function chip(text, bg, color = "#ffffff") {
-  return `<span style="display:inline-block; background:${bg}; color:${color}; font-size:11px; font-weight:700; letter-spacing:0.04em; padding:3px 9px; border-radius:999px; white-space:nowrap;">${escapeHtml(text)}</span>`;
+  return `<span style="display:inline-block; background:${bg}; color:${color}; font-size:11px; font-weight:700; letter-spacing:0.04em; padding:3px 9px; border-radius:999px; line-height:1.4; max-width:100%; word-break:break-word;">${escapeHtml(text)}</span>`;
 }
 
 function sectionTitle(text) {
-  return `<h4 style="margin:22px 0 10px; font-size:13px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:${C.muted};">${escapeHtml(text)}</h4>`;
-}
-
-function renderKpiCards(kpis) {
-  if (!kpis) {
-    return `${sectionTitle("Today so far · IST")}<div style="font-size:13px; color:${C.muted}; background:${C.card}; border:1px dashed ${C.border}; border-radius:10px; padding:12px 14px;">KPI data unavailable for this run.</div>`;
-  }
-  const deltas = kpis.deltas || {};
-  const cards = [
-    ["Total Sales", fmtAmount(kpis.total_sales), deltas.total_sales],
-    ["Sessions", fmtInt(kpis.sessions), deltas.sessions],
-    ["ATC Sessions", fmtInt(kpis.atc_sessions), deltas.atc_sessions],
-    ["CVR", fmtPct(kpis.cvr, 2), deltas.cvr],
-    ["AOV", fmtAmount(kpis.aov), deltas.aov],
-  ];
-  const cells = cards
-    .map(
-      ([label, value, delta]) => `
-        <td style="background:${C.card}; border:1px solid ${C.border}; border-radius:10px; padding:12px 6px; text-align:center;">
-          <div style="font-size:10px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:${C.muted}; padding-bottom:6px;">${escapeHtml(label)}</div>
-          <div style="font-size:17px; font-weight:700; color:${C.ink};">${escapeHtml(value)}</div>
-          <div style="font-size:12px; font-weight:700; padding-top:5px; color:${isNum(delta) ? deltaColor(delta, false) : C.muted};">${isNum(delta) ? `${delta >= 0 ? "▲" : "▼"} ${Math.abs(delta).toFixed(0)}%` : "—"}</div>
-        </td>`,
-    )
-    .join(`<td style="width:8px;"></td>`);
-  return `
-    ${sectionTitle("Today so far · IST · change vs 7-day average")}
-    <table role="presentation" style="width:100%; table-layout:fixed; border-collapse:separate; border-spacing:0;"><tr>${cells}</tr></table>`;
+  return `<h4 style="margin:18px 0 8px; font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:${C.muted};">${escapeHtml(text)}</h4>`;
 }
 
 function renderTriggers(br) {
@@ -164,21 +140,21 @@ function renderTriggers(br) {
     .map((type) => {
       const meta = ALERT_META[type];
       return `
-        <tr>
-          <td style="padding:8px 12px 8px 0; vertical-align:top; width:1%; white-space:nowrap;">${chip(meta.name, meta.tier === "ALERT" ? C.red : C.amber)}</td>
-          <td style="padding:8px 0; font-size:14px; line-height:1.5; color:${C.text};">${escapeHtml(alertExplanation(type, br))}</td>
-        </tr>`;
+        <div style="padding:9px 0; border-bottom:1px solid #f3f4f6;">
+          ${chip(meta.name, meta.tier === "ALERT" ? C.red : C.amber)}
+          <div style="font-size:13px; line-height:1.5; color:${C.text}; padding-top:6px;">${escapeHtml(alertExplanation(type, br))}</div>
+        </div>`;
     })
     .join("");
-  return `${sectionTitle("What triggered")}<table role="presentation" style="width:100%; border-collapse:collapse;">${rows}</table>`;
+  return `${sectionTitle("What triggered")}${rows}`;
 }
 
 function th(text, align = "right") {
-  return `<th style="padding:8px 10px; text-align:${align}; font-size:11px; font-weight:700; letter-spacing:0.05em; text-transform:uppercase; color:${C.muted}; border-bottom:2px solid ${C.border};">${escapeHtml(text)}</th>`;
+  return `<th style="padding:6px 4px; text-align:${align}; font-size:10px; font-weight:700; letter-spacing:0.05em; text-transform:uppercase; color:${C.muted}; border-bottom:2px solid ${C.border};">${escapeHtml(text)}</th>`;
 }
 
 function td(html, { align = "right", bold = false, color = C.text, bg = "" } = {}) {
-  return `<td style="padding:9px 10px; text-align:${align}; font-size:14px; font-weight:${bold ? 700 : 400}; color:${color}; border-bottom:1px solid #f3f4f6; ${bg ? `background:${bg};` : ""}">${html}</td>`;
+  return `<td style="padding:8px 4px; text-align:${align}; font-size:13px; font-weight:${bold ? 700 : 400}; color:${color}; border-bottom:1px solid #f3f4f6; ${bg ? `background:${bg};` : ""}">${html}</td>`;
 }
 
 function renderComparison(br) {
@@ -187,9 +163,9 @@ function renderComparison(br) {
   const base = s.baseline || {};
   const rows = [
     ["Discount amount", fmtAmount(cur.discount_amount), fmtAmount(base.discount_amount), s.discount_amount_delta, true],
-    ["Sales", fmtAmount(cur.gross_sales), fmtAmount(base.gross_sales), s.sales_delta, false],
-    ["Discount rate", fmtPct(s.discount_rate_current), fmtPct(s.discount_rate_baseline), s.discount_rate_delta, true],
-    ["Orders using a discount", fmtPct(s.usage_rate_current), fmtPct(s.usage_rate_baseline), s.usage_rate_delta, true],
+    ["Total sales", fmtAmount(cur.gross_sales), fmtAmount(base.gross_sales), s.sales_delta, false],
+    ["Discount rate", fmtRate(s.discount_rate_current), fmtRate(s.discount_rate_baseline), s.discount_rate_delta, true],
+    ["Discount usage", fmtRate(s.usage_rate_current), fmtRate(s.usage_rate_baseline), s.usage_rate_delta, true],
   ]
     .map(
       ([label, now, before, delta, upIsBad]) => `
@@ -218,7 +194,7 @@ function renderCodes(br) {
         ? ` · ${fmtPct(tc.amount_share_pct, 0)} of discount amount`
         : "";
     out += `${sectionTitle("Top discount code")}
-      <div style="background:${C.card}; border:1px solid ${C.border}; border-radius:10px; padding:12px 14px; font-size:14px; color:${C.text};">
+      <div style="background:${C.card}; border:1px solid ${C.border}; border-radius:10px; padding:10px 12px; font-size:13px; color:${C.text};">
         ${chip(tc.code, C.indigo)}&nbsp; ${fmtPct(tc.orders_share_pct, 0)} of discounted orders${split}
       </div>`;
   }
@@ -227,10 +203,10 @@ function renderCodes(br) {
     const lines = newCodes
       .map(
         (nc) =>
-          `<div style="padding:4px 0; font-size:14px; color:${C.text};">${chip(nc.code, C.red)}&nbsp; ${fmtPct(nc.orders_share_pct, 0)} of today's discounted orders · none in the last 7 days</div>`,
+          `<div style="padding:4px 0; font-size:13px; color:${C.text};">${chip(nc.code, C.red)}&nbsp; ${fmtPct(nc.orders_share_pct, 0)} of today's discounted orders · none in the last 7 days</div>`,
       )
       .join("");
-    out += `${sectionTitle("New discount codes")}<div style="background:${C.card}; border:1px solid ${C.border}; border-radius:10px; padding:10px 14px;">${lines}</div>`;
+    out += `${sectionTitle("New discount codes")}<div style="background:${C.card}; border:1px solid ${C.border}; border-radius:10px; padding:8px 12px;">${lines}</div>`;
   }
   return out;
 }
@@ -252,7 +228,7 @@ function renderUtm(br) {
     })
     .join("");
   return `
-    ${sectionTitle("Where today's discount is coming from (UTM source share)")}
+    ${sectionTitle("Discount by UTM source")}
     <table role="presentation" style="width:100%; border-collapse:collapse;">
       <tr>${th("Source", "left")}${th("Baseline")}${th("Today")}${th("Change")}</tr>
       ${body}
@@ -273,7 +249,7 @@ function renderDrill(br) {
         })
         .join("");
       return `
-        <div style="background:${C.card}; border:1px solid ${C.border}; border-radius:10px; padding:14px; margin-bottom:10px;">
+        <div style="background:${C.card}; border:1px solid ${C.border}; border-radius:10px; padding:12px; margin-bottom:10px;">
           <div style="font-size:14px; font-weight:700; color:${C.ink};">${escapeHtml(fs.source)} &rarr; ${escapeHtml(d.campaign)}</div>
           <div style="font-size:13px; color:${C.text}; padding-top:4px;">
             ${fmtPct(d.baseline_share)} &rarr; <strong>${fmtPct(d.current_share)}</strong> of ${escapeHtml(fs.source)}'s discount
@@ -289,9 +265,9 @@ function renderDrill(br) {
 function renderBrandSection(br) {
   const tierColor = br.tier === "ALERT" ? C.red : C.amber;
   return `
-    <div style="border:1px solid ${C.border}; border-radius:12px; padding:20px; margin-bottom:22px;">
+    <div style="border:1px solid ${C.border}; border-radius:12px; padding:14px; margin-bottom:16px;">
       <table role="presentation" style="width:100%; border-collapse:collapse;"><tr>
-        <td style="font-size:22px; font-weight:800; color:${C.ink};">${escapeHtml(String(br.brand).toUpperCase())}</td>
+        <td style="font-size:20px; font-weight:800; color:${C.ink};">${escapeHtml(String(br.brand).toUpperCase())}</td>
         <td style="text-align:right;">${chip(br.tier === "ALERT" ? "ALERT" : "WATCH", tierColor)}</td>
       </tr></table>
       ${renderKpiCards(br.kpis)}
@@ -330,23 +306,23 @@ function buildDiscountMonitorEmail(body, { istHour = 0 } = {}) {
   const html = `
   <html>
   <body style="margin:0; padding:0; background:#f4f6fb; font-family:Arial, sans-serif;">
-    <div style="max-width:680px; margin:30px auto; background:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 6px 25px rgba(0,0,0,0.08);">
+    <div style="max-width:680px; margin:12px auto; background:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 6px 25px rgba(0,0,0,0.08);">
 
-      <div style="background:${bannerColor}; padding:26px 32px; color:#ffffff;">
-        <h2 style="margin:0; font-size:24px; font-weight:600;">🏷️ Discount Monitor — ${n} brand${n === 1 ? "" : "s"} flagged</h2>
-        <p style="margin:6px 0 0; font-size:14px; opacity:0.92;">
+      <div style="background:${bannerColor}; padding:18px 18px; color:#ffffff;">
+        <h2 style="margin:0; font-size:20px; font-weight:600; line-height:1.3;">🏷️ Discount Monitor — ${n} brand${n === 1 ? "" : "s"} flagged</h2>
+        <p style="margin:6px 0 0; font-size:12px; opacity:0.92; line-height:1.5;">
           ${escapeHtml(runDate)} · ${Number(body.brand_count || 0)} brands checked · ${Number(body.flagged_count || n)} flagged · ${Number(body.normal_count || normal.length)} normal
         </p>
       </div>
 
-      <div style="padding:26px 30px; line-height:1.6; color:${C.text};">
+      <div style="padding:16px 12px; line-height:1.5; color:${C.text};">
         ${brandResults.map(renderBrandSection).join("")}
         ${
           footerLines.length
             ? `<p style="margin:0 0 16px; font-size:13px; color:${C.muted};">${footerLines.map(escapeHtml).join("<br>")}</p>`
             : ""
         }
-        <p style="font-size:15px; color:#4b5563; margin:8px 0 0;">
+        <p style="font-size:13px; color:#4b5563; margin:8px 0 0;">
           Take a look at the latest activity on your dashboard for possible causes:
           <a href="https://datum.trytechit.co/" style="color:${C.indigo}; text-decoration:underline;">https://datum.trytechit.co/</a>
         </p>

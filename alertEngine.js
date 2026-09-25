@@ -5,6 +5,7 @@ const { MongoClient } = require("mongodb");
 const { normalizeAlertFiredEvent } = require("./utils/alertFiredEventNormalizer");
 const { rabbitmqPublisher } = require("./utils/rabbitmqPublisher");
 const { buildDiscountMonitorEmail } = require("./utils/discountMonitorEmail");
+const { renderKpiCards } = require("./utils/kpiCards");
 let mongoClient = null;
 
 // Superseded by getPerformanceMetricsFromMySQL() — daily_web_vitals_summary (MySQL) is
@@ -2568,6 +2569,15 @@ function buildCodDigestEmail(eligibleResults, runDate) {
 
   const overallTable = buildCodOverallTable(eligibleResults);
   const productsTable = buildCodProductsTable(eligibleResults);
+  // One labelled row of KPI cards per brand, above the tables.
+  const kpiSection = eligibleResults
+    .map((r) =>
+      renderKpiCards(
+        r.kpis,
+        `${String(r.brand || "").toUpperCase()} · Today so far (IST) · vs 7-day avg`,
+      ),
+    )
+    .join("");
 
   const html = `
   <html>
@@ -2583,7 +2593,8 @@ function buildCodDigestEmail(eligibleResults, runDate) {
       </div>
 
       <div style="padding:30px; line-height:1.6; color:#374151;">
-        <h3 style="margin:0 0 10px; font-size:15px; font-weight:600; color:#111827;">Overall Summary</h3>
+        ${kpiSection}
+        <h3 style="margin:26px 0 10px; font-size:15px; font-weight:600; color:#111827;">Overall Summary</h3>
         <div style="overflow-x:auto;">${overallTable}</div>
         ${productsTable ? `<div style="overflow-x:auto;">${productsTable}</div>` : ""}
         <p style="font-size:15px; color:#4b5563; margin-top:8px;">

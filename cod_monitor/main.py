@@ -125,6 +125,7 @@ def build_run_payload(brand_results: list[dict], dry_run: bool) -> dict:
                 "product_rows": result.get("product_rows", []),
                 "alerts": result.get("alerts", []),
                 "alert_count": len(result.get("alerts", [])),
+                "kpis": result.get("kpis"),
                 "thresholds": BRANDS[result["brand"]]["thresholds"],
                 "product_min_orders": BRANDS[result["brand"]].get("product_min_orders", 20),
                 "configured_product_ids": BRANDS[result["brand"]].get("product_ids", []),

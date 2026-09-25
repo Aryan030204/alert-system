@@ -1,0 +1,21 @@
+2026-09-25 11:22:05  INFO      __main__  Starting COD monitor | brands=['VAMA', 'TMC', 'AJMAL', 'BBB', 'PTS'] | workers=5 | dry_run=True
+2026-09-25 11:22:05  ERROR     db  DB connection failed for mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com/AJMAL: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-09-25 11:22:05  ERROR     monitor  [AJMAL] Processing failed: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-09-25 11:22:05  ERROR     db  DB connection failed for mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com/TMC: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-09-25 11:22:05  ERROR     monitor  [TMC] Processing failed: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-09-25 11:22:05  ERROR     db  DB connection failed for mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com/VAMA: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-09-25 11:22:05  ERROR     db  DB connection failed for mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com/PTS: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-09-25 11:22:05  ERROR     monitor  [PTS] Processing failed: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-09-25 11:22:05  ERROR     db  DB connection failed for mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com/BBB: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-09-25 11:22:05  ERROR     monitor  [BBB] Processing failed: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-09-25 11:22:05  INFO      __main__  Completed brand: AJMAL
+2026-09-25 11:22:05  INFO      __main__  Completed brand: TMC
+2026-09-25 11:22:05  INFO      __main__  Completed brand: PTS
+2026-09-25 11:22:05  INFO      __main__  Completed brand: BBB
+2026-09-25 11:22:05  ERROR     monitor  [VAMA] Processing failed: 2005 (HY000): Unknown MySQL server host 'mysql-proxy-nlb-public-e151cae2a6c09403.elb.ap-south-1.amazonaws.com' (11001)
+2026-09-25 11:22:05  INFO      __main__  Completed brand: VAMA
+2026-09-25 11:22:05  INFO      __main__  JSON output mode enabled; console report suppressed.
+2026-09-25 11:22:05  INFO      __main__  COD run payload prepared: {"run_date": "2026-09-25", "brand_count": 5, "total_alerts": 0, "total_errors": 5, "dry_run": true}
+2026-09-25 11:22:05  INFO      __main__  JSON output mode: alert engine POST suppressed (payload returned via stdout).
+2026-09-25 11:22:05  INFO      __main__  Dry-run mode: notifications suppressed.
+2026-09-25 11:22:05  WARNING   __main__  5 brand(s) encountered errors.
