@@ -6,6 +6,7 @@ const { normalizeAlertFiredEvent } = require("./utils/alertFiredEventNormalizer"
 const { rabbitmqPublisher } = require("./utils/rabbitmqPublisher");
 const { buildDiscountMonitorEmail } = require("./utils/discountMonitorEmail");
 const { renderKpiCards } = require("./utils/kpiCards");
+const { isGuardActive, armGuard, ensureMongoIndexes } = require("./utils/mongoResilience");
 let mongoClient = null;
 
 // Superseded by getPerformanceMetricsFromMySQL() — daily_web_vitals_summary (MySQL) is
@@ -523,6 +524,9 @@ async function loadRulesForBrand(brandId) {
       mongoClient = new MongoClient(process.env.MONGO_URI);
       await mongoClient.connect();
       console.log("✅ Connected to MongoDB");
+      ensureMongoIndexes(mongoClient.db()).catch((err) =>
+        console.warn("⚠️ Failed to ensure Mongo TTL indexes:", err.message),
+      );
     }
 
     // Assuming the URI points to the correct DB, or using default
@@ -1161,6 +1165,46 @@ async function sendEmail(cfg, subject, html) {
 }
 
 /* -------------------------------------------------------
+   Mongo write failure notifier.
+   The cooldown/dedup mechanisms depend entirely on MongoDB writes
+   (alert_history, current_state) actually landing. When they don't —
+   e.g. the Atlas cluster hits its storage cap and blocks all writes —
+   this fires one email so it's discoverable immediately instead of via
+   a spam incident or by reading logs. Throttled to at most once per
+   hour so a sustained outage doesn't itself become a new spam source.
+--------------------------------------------------------*/
+const MONGO_FAILURE_NOTIFY_COOLDOWN_MS = 60 * 60 * 1000;
+let lastMongoFailureNotifiedAt = 0;
+
+async function notifyMongoWriteFailure(context, err) {
+  console.error(`🔥 Mongo write failed [${context}]:`, err.message);
+
+  const notifyEmail = process.env.MONGO_FAILURE_NOTIFY_EMAIL;
+  if (!notifyEmail) return;
+
+  const now = Date.now();
+  if (now - lastMongoFailureNotifiedAt < MONGO_FAILURE_NOTIFY_COOLDOWN_MS) return;
+  lastMongoFailureNotifiedAt = now;
+
+  try {
+    await sendEmail(
+      { to: [notifyEmail] },
+      "[Alert System] MongoDB write failures detected",
+      `<p>The alert system just failed to write to MongoDB.</p>
+       <p><strong>Where:</strong> ${escapeHtml(context)}</p>
+       <p><strong>Error:</strong></p>
+       <pre style="background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; padding:12px; white-space:pre-wrap;">${escapeHtml(err.message)}</pre>
+       <p>This can cause duplicate alert emails, since cooldown/state tracking depends on
+       these writes succeeding. A common cause is the Atlas cluster hitting its storage
+       cap — check <code>db.stats()</code> / Atlas storage usage.</p>
+       <p style="color:#6b7280; font-size:12px;">Further failures within the next hour won't send another email.</p>`,
+    );
+  } catch (notifyErr) {
+    console.error("🔥 Failed to send Mongo-failure notification email:", notifyErr.message);
+  }
+}
+
+/* -------------------------------------------------------
    Send Push Webhook
 --------------------------------------------------------*/
 async function sendPushWebhook(payload) {
@@ -1333,10 +1377,7 @@ async function triggerAlert({
       const db = mongoClient.db();
       await db.collection("alert_history").insertOne(historyDoc);
     } catch (err) {
-      console.error(
-        "🔥 Error saving test alert history to MongoDB:",
-        err.message,
-      );
+      await notifyMongoWriteFailure(`triggerAlert TEST_MODE alert_history insert (rule=${rule.id})`, err);
     }
     return;
   }
@@ -1473,7 +1514,7 @@ async function triggerAlert({
     await db.collection("push_notifications").insertOne(pushNotificationDoc);
     console.log(`   💾 Push notification logged to MongoDB.`);
   } catch (err) {
-    console.error("🔥 Error saving to MongoDB:", err.message);
+    await notifyMongoWriteFailure(`triggerAlert alert_history/push_notifications insert (rule=${rule.id})`, err);
   }
 }
 
@@ -1796,7 +1837,7 @@ async function updateRuleState(ruleId, newState) {
       .updateOne({ _id: ruleId }, { $set: { current_state: newState } });
     console.log(`   💾 Rule state updated to: ${newState}`);
   } catch (err) {
-    console.error("🔥 Error updating rule state in MongoDB:", err.message);
+    await notifyMongoWriteFailure(`updateRuleState(ruleId=${ruleId}, newState=${newState})`, err);
   }
 }
 
@@ -2234,6 +2275,17 @@ async function processIncomingEvent(event) {
         }
       }
 
+      // In-memory fallback guard: catches a burst of repeat fires when a Mongo
+      // write (alert_history/current_state) silently failed on a prior pass
+      // for this exact rule+state, so the DB-side cooldown couldn't record it.
+      const perfGuardKey = `perf:${rule.id}:${newState}`;
+      if (shouldFire && isGuardActive(perfGuardKey)) {
+        console.log(
+          `   🛡️  [PERFORMANCE] In-memory guard active for "${newState}" — suppressing (likely a recent Mongo write failure for this state).`,
+        );
+        shouldFire = false;
+      }
+
       // Quiet hours still suppress firing, even CRITICAL.
       if (
         shouldFire &&
@@ -2259,6 +2311,13 @@ async function processIncomingEvent(event) {
       );
 
       if (shouldFire) {
+        // Arm the guard before dispatching, and before any Mongo write is
+        // attempted — so it's up even if those writes go on to fail.
+        const perfGuardDurationMs = isRecoveryTransition
+          ? 10 * 60 * 1000
+          : (PERFORMANCE_STATE_COOLDOWN_HOURS[newState] || 1) * 3600000;
+        armGuard(perfGuardKey, perfGuardDurationMs);
+
         event.overrideThresholdDisplay = matchedBucket
           ? `${newState} range: ${matchedBucket.min}–${matchedBucket.max}`
           : newState;
@@ -2381,6 +2440,22 @@ async function processIncomingEvent(event) {
         continue;
       }
     }
+
+    // In-memory fallback guard: catches a burst of repeat fires when a Mongo
+    // write (alert_history/current_state) silently failed on a prior pass for
+    // this rule, so checkCooldown() above couldn't see it. Bypassed for the
+    // same escalation/NORMAL->CRITICAL cases that bypass the real cooldown.
+    const metricGuardKey = `metric:${rule.id}`;
+    const metricGuardBypassed =
+      rule.__escalation_info.isEscalation ||
+      (previousState === "NORMAL" && newState === "CRITICAL");
+    if (!metricGuardBypassed && isGuardActive(metricGuardKey)) {
+      console.log(
+        `   🛡️  In-memory guard active for this rule — suppressing (likely a recent Mongo write failure). State NOT updated.`,
+      );
+      continue;
+    }
+    armGuard(metricGuardKey, Number(rule.cooldown_minutes || 1) * 60000);
 
     const dispatchTarget = resolveAlertDispatchTarget(rule);
     console.log(`   🎯 Dispatch target: ${dispatchTarget}`);
@@ -2645,12 +2720,29 @@ function codAlertKey(brand, alert) {
   };
 }
 
+function codGuardKey(brand, alert) {
+  const key = codAlertKey(brand, alert);
+  return `cod:${key.brand}:${key.level}:${key.product_id ?? ""}`;
+}
+
 async function filterCodAlertsByCooldown(brand, alerts) {
   const collection = await getCodAlertHistoryCollection();
   const eligible = [];
 
   for (const alert of alerts) {
     const key = codAlertKey(brand, alert);
+    const guardKey = codGuardKey(brand, alert);
+
+    // In-memory fallback guard: catches a repeat send when a prior
+    // recordCodAlertsFired() write silently failed, so the DB-side
+    // cooldown below couldn't see it.
+    if (isGuardActive(guardKey)) {
+      console.log(
+        `   🛡️  [COD] In-memory guard active for ${brand} [${key.level}${key.product_id ? `:${key.product_id}` : ""}] — suppressing (likely a recent Mongo write failure).`,
+      );
+      continue;
+    }
+
     const last = await collection.findOne(key, { sort: { triggered_at: -1 } });
 
     if (last) {
@@ -2718,12 +2810,25 @@ async function sendCodMonitorEmails(body) {
     return { attempted: 0, sent: 0, suppressed, brandsIncluded: 0 };
   }
 
+  // Arm the guard before sending — before any Mongo write for this batch is
+  // even attempted — so a failed recordCodAlertsFired() below doesn't leave
+  // the next run able to slip these same findings back through.
+  for (const result of eligibleResults) {
+    for (const alert of result.alerts) {
+      armGuard(codGuardKey(result.brand, alert), COD_ALERT_COOLDOWN_HOURS * 3600000);
+    }
+  }
+
   const { subject, html } = buildCodDigestEmail(eligibleResults, body.run_date);
   const finalSubject = TEST_MODE ? `[TEST] ${subject}` : subject;
   await sendEmail({ to: recipients }, finalSubject, html);
 
   for (const result of eligibleResults) {
-    await recordCodAlertsFired(result.brand, result.alerts);
+    try {
+      await recordCodAlertsFired(result.brand, result.alerts);
+    } catch (err) {
+      await notifyMongoWriteFailure(`recordCodAlertsFired(brand=${result.brand})`, err);
+    }
   }
 
   return { attempted: 1, sent: 1, suppressed, brandsIncluded: eligibleResults.length };
