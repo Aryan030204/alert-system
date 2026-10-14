@@ -77,7 +77,19 @@ THRESHOLDS = {
     # Alert 1: discount rate spike (discount_amount / gross_sales)
     # fires when current discount rate is this much HIGHER than baseline,
     # relative: (current - baseline) / baseline * 100
+    # Still used as a fallback for any brand with no entry in
+    # discount_rate_absolute_pct below (e.g. BBB).
     "discount_rate_delta_pct": 10,
+
+    # Alert 1, per-brand override: fires when discount_rate_current (%,
+    # already discount_amount/gross_sales*100) itself crosses this absolute
+    # value, regardless of baseline. A brand listed here skips the relative
+    # check above entirely.
+    "discount_rate_absolute_pct": {
+        "PTS": 25,
+        "VAMA": 5,
+        "AJMAL": 10,
+    },
 
     # Alert 2: discount amount growing faster than sales
     # both growth numbers use the same (current-baseline)/baseline*100 formula.

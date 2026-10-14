@@ -138,13 +138,27 @@ def decide_alerts(snapshot: dict) -> list[str]:
     """Return the list of alert types that fire for this brand's snapshot."""
     fired = []
 
-    rate_delta = snapshot["discount_rate_delta"]
-    if (
-        is_enabled("DISCOUNT_RATE_SPIKE")
-        and rate_delta is not None
-        and rate_delta >= THRESHOLDS["discount_rate_delta_pct"]
-    ):
-        fired.append("DISCOUNT_RATE_SPIKE")
+    # Original relative-delta check, kept for reference. Replaced below by an
+    # absolute per-brand threshold for brands listed in
+    # THRESHOLDS["discount_rate_absolute_pct"]; brands not listed there
+    # (e.g. BBB) still use this relative logic.
+    # rate_delta = snapshot["discount_rate_delta"]
+    # if (
+    #     is_enabled("DISCOUNT_RATE_SPIKE")
+    #     and rate_delta is not None
+    #     and rate_delta >= THRESHOLDS["discount_rate_delta_pct"]
+    # ):
+    #     fired.append("DISCOUNT_RATE_SPIKE")
+
+    absolute_threshold = THRESHOLDS["discount_rate_absolute_pct"].get(snapshot["brand"])
+    if is_enabled("DISCOUNT_RATE_SPIKE"):
+        if absolute_threshold is not None:
+            if snapshot["discount_rate_current"] >= absolute_threshold:
+                fired.append("DISCOUNT_RATE_SPIKE")
+        else:
+            rate_delta = snapshot["discount_rate_delta"]
+            if rate_delta is not None and rate_delta >= THRESHOLDS["discount_rate_delta_pct"]:
+                fired.append("DISCOUNT_RATE_SPIKE")
 
     disc_growth = snapshot["discount_amount_delta"]
     sales_growth = snapshot["sales_delta"]
