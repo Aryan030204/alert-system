@@ -68,10 +68,23 @@ function alertDelta(type, snapshot) {
   return null; // NEW_CODE has no baseline, so no delta
 }
 
+// Transition framing, mirrors alertEngine.js's TRANSITION_COLOR/LABEL for
+// the COD digest -- keep the three colors in sync if either changes.
+function transitionColor(newState) {
+  if (newState === "CRITICAL") return C.red;
+  if (newState === "NORMAL") return C.green;
+  return C.amber;
+}
+function transitionLabel(newState) {
+  if (newState === "CRITICAL") return "ESCALATED";
+  if (newState === "NORMAL") return "RESOLVED";
+  return "NEW";
+}
+
 function sortedAlerts(brandResult) {
-  return [...(brandResult.alerts_fired || [])]
-    .filter((t) => ALERT_META[t])
-    .sort((a, b) => ALERT_META[a].priority - ALERT_META[b].priority);
+  return [...(brandResult.transitions || [])]
+    .filter((t) => ALERT_META[t.alertType])
+    .sort((a, b) => ALERT_META[a.alertType].priority - ALERT_META[b.alertType].priority);
 }
 
 function alertExplanation(type, br) {
@@ -96,33 +109,49 @@ function alertExplanation(type, br) {
 
 /* ---------- subject ---------- */
 
-// Lead brand = highest-priority alert across brands, ties broken by larger delta.
-function pickLead(brandResults) {
+// Lead brand = highest-priority transition across brands, ties broken by
+// larger delta. CRITICAL transitions always outrank TRIGGERED/NORMAL ones
+// regardless of alert-type priority, so an escalation never gets buried
+// behind a routine new-breach in the subject line.
+function pickLead(brandEntries) {
   let lead = null;
-  for (const br of brandResults) {
+  for (const br of brandEntries) {
     const top = sortedAlerts(br)[0];
     if (!top) continue;
-    const delta = alertDelta(top, br.snapshot || {});
-    const candidate = { brand: br.brand, type: top, delta, priority: ALERT_META[top].priority };
+    const delta = alertDelta(top.alertType, br.snapshot || {});
+    const severityRank = top.newState === "CRITICAL" ? 0 : top.newState === "TRIGGERED" ? 1 : 2;
+    const candidate = {
+      brand: br.brand,
+      type: top.alertType,
+      newState: top.newState,
+      delta,
+      priority: ALERT_META[top.alertType].priority,
+      severityRank,
+    };
     const better =
       !lead ||
-      candidate.priority < lead.priority ||
-      (candidate.priority === lead.priority && (delta ?? -Infinity) > (lead.delta ?? -Infinity));
+      candidate.severityRank < lead.severityRank ||
+      (candidate.severityRank === lead.severityRank && candidate.priority < lead.priority) ||
+      (candidate.severityRank === lead.severityRank &&
+        candidate.priority === lead.priority &&
+        (delta ?? -Infinity) > (lead.delta ?? -Infinity));
     if (better) lead = candidate;
   }
   return lead;
 }
 
-function buildDiscountSubject(brandResults, istHour) {
-  const lead = pickLead(brandResults);
-  if (!lead) return `Discount Monitor | ${brandResults.length} flagged | 0-${istHour}h`;
+function buildDiscountSubject(brandEntries, istHour) {
+  const lead = pickLead(brandEntries);
+  if (!lead) return `Discount Monitor | ${brandEntries.length} changed | 0-${istHour}h`;
 
-  const others = brandResults.length - 1;
+  const others = brandEntries.length - 1;
   const brandLabel = `${String(lead.brand).toUpperCase()}${others > 0 ? ` +${others} more` : ""}`;
   const deltaPart = isNum(lead.delta)
     ? ` | ${Math.abs(lead.delta).toFixed(2)}% ${lead.delta < 0 ? "Drop" : "Rise"}`
     : "";
-  return `${brandLabel} | ${ALERT_META[lead.type].name} Alert${deltaPart} | 0-${istHour}h`;
+  const prefix =
+    lead.newState === "CRITICAL" ? "ESCALATED: " : lead.newState === "NORMAL" ? "RESOLVED: " : "";
+  return `${prefix}${brandLabel} | ${ALERT_META[lead.type].name}${deltaPart} | 0-${istHour}h`;
 }
 
 /* ---------- section renderers ---------- */
@@ -137,16 +166,17 @@ function sectionTitle(text) {
 
 function renderTriggers(br) {
   const rows = sortedAlerts(br)
-    .map((type) => {
-      const meta = ALERT_META[type];
+    .map((t) => {
+      const meta = ALERT_META[t.alertType];
+      const color = transitionColor(t.newState);
       return `
         <div style="padding:9px 0; border-bottom:1px solid #f3f4f6;">
-          ${chip(meta.name, meta.tier === "ALERT" ? C.red : C.amber)}
-          <div style="font-size:13px; line-height:1.5; color:${C.text}; padding-top:6px;">${escapeHtml(alertExplanation(type, br))}</div>
+          ${chip(meta.name, color)} ${chip(transitionLabel(t.newState), color)}
+          <div style="font-size:13px; line-height:1.5; color:${C.text}; padding-top:6px;">${escapeHtml(alertExplanation(t.alertType, br))}</div>
         </div>`;
     })
     .join("");
-  return `${sectionTitle("What triggered")}${rows}`;
+  return `${sectionTitle("What changed")}${rows}`;
 }
 
 function th(text, align = "right") {
@@ -262,13 +292,23 @@ function renderDrill(br) {
   return cards ? `${sectionTitle("Campaign drill-down")}${cards}` : "";
 }
 
+// Brand-level badge = worst transition present: any CRITICAL outranks any
+// TRIGGERED, which outranks an all-RESOLVED brand (nothing left breaching).
+function brandBadge(br) {
+  const states = (br.transitions || []).map((t) => t.newState);
+  if (states.includes("CRITICAL")) return { label: "CRITICAL", color: C.red };
+  if (states.includes("TRIGGERED")) return { label: "NEW", color: C.amber };
+  if (states.length) return { label: "RESOLVED", color: C.green };
+  return { label: "WATCH", color: C.amber };
+}
+
 function renderBrandSection(br) {
-  const tierColor = br.tier === "ALERT" ? C.red : C.amber;
+  const badge = brandBadge(br);
   return `
     <div style="border:1px solid ${C.border}; border-radius:12px; padding:14px; margin-bottom:16px;">
       <table role="presentation" style="width:100%; border-collapse:collapse;"><tr>
         <td style="font-size:20px; font-weight:800; color:${C.ink};">${escapeHtml(String(br.brand).toUpperCase())}</td>
-        <td style="text-align:right;">${chip(br.tier === "ALERT" ? "ALERT" : "WATCH", tierColor)}</td>
+        <td style="text-align:right;">${chip(badge.label, badge.color)}</td>
       </tr></table>
       ${renderKpiCards(br.kpis)}
       ${renderTriggers(br)}
@@ -282,19 +322,24 @@ function renderBrandSection(br) {
 /* ---------- public builder ---------- */
 
 function buildDiscountMonitorEmail(body, { istHour = 0 } = {}) {
-  const brandResults = Array.isArray(body.brand_results) ? body.brand_results : [];
+  // body.brand_results here is the already transition-filtered list from
+  // alertEngine.js's evaluateDiscountTransitions() -- only brands with at
+  // least one NORMAL<->TRIGGERED<->CRITICAL transition this run, each
+  // carrying a `transitions` array (not the raw alerts_fired/tier fields).
+  const brandEntries = Array.isArray(body.brand_results) ? body.brand_results : [];
   const runDate = body.run_date || "";
 
   // Older payloads without structured data: keep the plain digest readable.
-  if (!brandResults.length) {
-    const subject = `Discount Monitor | ${Number(body.flagged_count || 0)} flagged | 0-${istHour}h`;
+  if (!brandEntries.length) {
+    const subject = `Discount Monitor | 0 changed | 0-${istHour}h`;
     const html = `<html><body style="font-family:Arial,sans-serif;"><pre style="white-space:pre-wrap;">${escapeHtml(body.digest_text || "No digest available.")}</pre></body></html>`;
     return { subject, html };
   }
 
-  const hasHard = brandResults.some((br) => br.tier === "ALERT");
-  const bannerColor = hasHard ? C.red : C.amber;
-  const n = brandResults.length;
+  const hasCritical = brandEntries.some((br) => (br.transitions || []).some((t) => t.newState === "CRITICAL"));
+  const allResolved = brandEntries.every((br) => (br.transitions || []).every((t) => t.newState === "NORMAL"));
+  const bannerColor = hasCritical ? C.red : allResolved ? C.green : C.amber;
+  const n = brandEntries.length;
   const normal = Array.isArray(body.normal_brands) ? body.normal_brands : [];
   const skipped = Array.isArray(body.skipped_brands) ? body.skipped_brands : [];
 
@@ -309,14 +354,14 @@ function buildDiscountMonitorEmail(body, { istHour = 0 } = {}) {
     <div style="max-width:680px; margin:12px auto; background:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 6px 25px rgba(0,0,0,0.08);">
 
       <div style="background:${bannerColor}; padding:18px 18px; color:#ffffff;">
-        <h2 style="margin:0; font-size:20px; font-weight:600; line-height:1.3;">🏷️ Discount Monitor — ${n} brand${n === 1 ? "" : "s"} flagged</h2>
+        <h2 style="margin:0; font-size:20px; font-weight:600; line-height:1.3;">🏷️ Discount Monitor — ${n} brand${n === 1 ? "" : "s"} changed state</h2>
         <p style="margin:6px 0 0; font-size:12px; opacity:0.92; line-height:1.5;">
-          ${escapeHtml(runDate)} · ${Number(body.brand_count || 0)} brands checked · ${Number(body.flagged_count || n)} flagged · ${Number(body.normal_count || normal.length)} normal
+          ${escapeHtml(runDate)} · ${Number(body.brand_count || 0)} brands checked · ${Number(body.normal_count || normal.length)} normal
         </p>
       </div>
 
       <div style="padding:16px 12px; line-height:1.5; color:${C.text};">
-        ${brandResults.map(renderBrandSection).join("")}
+        ${brandEntries.map(renderBrandSection).join("")}
         ${
           footerLines.length
             ? `<p style="margin:0 0 16px; font-size:13px; color:${C.muted};">${footerLines.map(escapeHtml).join("<br>")}</p>`
@@ -335,7 +380,7 @@ function buildDiscountMonitorEmail(body, { istHour = 0 } = {}) {
   </body>
   </html>`;
 
-  return { subject: buildDiscountSubject(brandResults, istHour), html };
+  return { subject: buildDiscountSubject(brandEntries, istHour), html };
 }
 
 module.exports = { buildDiscountMonitorEmail, buildDiscountSubject };

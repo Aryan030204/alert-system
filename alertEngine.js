@@ -2544,26 +2544,39 @@ const COD_TABLE_HEADER_CELL =
   "padding:8px 10px; border:1px solid #4b5563; background:#374151; color:#ffffff; font-size:12px; text-transform:uppercase; letter-spacing:0.03em;";
 const COD_TABLE_CELL = "padding:7px 10px; border:1px solid #d1d5db; font-size:13px;";
 
-function buildCodOverallTable(eligibleResults) {
-  const rows = eligibleResults
-    .map((result, i) => {
-      const overall = result.overall || {};
-      const thresholds = result.thresholds || {};
-      const spiked = (result.alerts || []).some((a) => a.level === "overall");
+// Transition framing shared by both the discount and COD digest emails:
+// green = resolved (any state -> NORMAL), red = escalated (-> CRITICAL),
+// amber = newly triggered (NORMAL -> TRIGGERED). Mirrors the three colors
+// already used by selectEmailTemplate() for performance alerts.
+const TRANSITION_COLOR = { NORMAL: "#10b981", TRIGGERED: "#f59e0b", CRITICAL: "#dc2626" };
+const TRANSITION_LABEL = { NORMAL: "RESOLVED", TRIGGERED: "NEW", CRITICAL: "ESCALATED" };
+
+function transitionBadge(newState) {
+  const color = TRANSITION_COLOR[newState] || "#9ca3af";
+  const label = TRANSITION_LABEL[newState] || newState;
+  return `<span style="color:${color}; font-weight:700;">${label === "RESOLVED" ? "✔" : "⚠"} ${escapeHtml(label)}</span>`;
+}
+
+function buildCodOverallTable(brandEntries) {
+  const rows = brandEntries
+    .map((entry, i) => {
+      const overall = entry.overall || {};
+      const thresholds = entry.thresholds || {};
+      const overallTransition = entry.transitions.find((t) => t.level === "overall");
       const rowBg = i % 2 === 0 ? "#ffffff" : "#f9fafb";
-      const deltaColor = spiked ? "#dc2626" : "#374151";
+      const deltaColor = overallTransition && overallTransition.newState !== "NORMAL" ? "#dc2626" : "#374151";
 
       return `
         <tr style="background:${rowBg};">
-          <td style="${COD_TABLE_CELL} font-weight:600; color:#111827; text-align:left;">${escapeHtml(String(result.brand || "").toUpperCase())}</td>
+          <td style="${COD_TABLE_CELL} font-weight:600; color:#111827; text-align:left;">${escapeHtml(String(entry.brand || "").toUpperCase())}</td>
           <td style="${COD_TABLE_CELL} text-align:right;">${escapeHtml(formatCodPercent(overall.today_cod_pct))}</td>
           <td style="${COD_TABLE_CELL} text-align:right;">${escapeHtml(formatCodPercent(overall.baseline_cod_pct))}</td>
           <td style="${COD_TABLE_CELL} text-align:right; font-weight:600; color:${deltaColor};">${escapeHtml(formatCodDelta(overall.delta_cod_pct))}</td>
           <td style="${COD_TABLE_CELL} text-align:right;">${escapeHtml(overall.today_total_orders ?? "N/A")}</td>
           <td style="${COD_TABLE_CELL} text-align:right;">${escapeHtml(thresholds.overall ?? "N/A")}%</td>
           <td style="${COD_TABLE_CELL} text-align:center;">${
-            spiked
-              ? '<span style="color:#dc2626; font-weight:700;">⚠ SPIKE</span>'
+            overallTransition
+              ? transitionBadge(overallTransition.newState)
               : '<span style="color:#9ca3af;">—</span>'
           }</td>
         </tr>
@@ -2589,36 +2602,37 @@ function buildCodOverallTable(eligibleResults) {
   `;
 }
 
-function buildCodProductsTable(eligibleResults) {
+function buildCodProductsTable(brandEntries) {
   const rows = [];
-  eligibleResults.forEach((result) => {
-    const brand = String(result.brand || "").toUpperCase();
-    (result.alerts || [])
-      .filter((alert) => alert.level === "product")
-      .forEach((alert) => rows.push({ brand, alert }));
+  brandEntries.forEach((entry) => {
+    const brand = String(entry.brand || "").toUpperCase();
+    entry.transitions
+      .filter((t) => t.level === "product")
+      .forEach((t) => rows.push({ brand, t }));
   });
 
   if (!rows.length) return "";
 
   const bodyRows = rows
-    .map(({ brand, alert }, i) => {
+    .map(({ brand, t }, i) => {
       const rowBg = i % 2 === 0 ? "#ffffff" : "#f9fafb";
       return `
         <tr style="background:${rowBg};">
           <td style="${COD_TABLE_CELL} font-weight:600; text-align:left;">${escapeHtml(brand)}</td>
-          <td style="${COD_TABLE_CELL} text-align:left;">${escapeHtml(alert.product_name || "N/A")}</td>
-          <td style="${COD_TABLE_CELL} text-align:right;">${escapeHtml(alert.product_id || "N/A")}</td>
-          <td style="${COD_TABLE_CELL} text-align:right;">${escapeHtml(formatCodPercent(alert.today_cod_pct))}</td>
-          <td style="${COD_TABLE_CELL} text-align:right;">${escapeHtml(formatCodPercent(alert.baseline_cod_pct))}</td>
-          <td style="${COD_TABLE_CELL} text-align:right; font-weight:600; color:#dc2626;">${escapeHtml(formatCodDelta(alert.delta))}</td>
-          <td style="${COD_TABLE_CELL} text-align:right;">${escapeHtml(alert.today_total_orders ?? "N/A")}</td>
+          <td style="${COD_TABLE_CELL} text-align:left;">${escapeHtml(t.product_name || "N/A")}</td>
+          <td style="${COD_TABLE_CELL} text-align:right;">${escapeHtml(t.product_id || "N/A")}</td>
+          <td style="${COD_TABLE_CELL} text-align:right;">${escapeHtml(formatCodPercent(t.today_cod_pct))}</td>
+          <td style="${COD_TABLE_CELL} text-align:right;">${escapeHtml(formatCodPercent(t.baseline_cod_pct))}</td>
+          <td style="${COD_TABLE_CELL} text-align:right; font-weight:600; color:#dc2626;">${escapeHtml(formatCodDelta(t.delta))}</td>
+          <td style="${COD_TABLE_CELL} text-align:right;">${escapeHtml(t.today_total_orders ?? "N/A")}</td>
+          <td style="${COD_TABLE_CELL} text-align:center;">${transitionBadge(t.newState)}</td>
         </tr>
       `;
     })
     .join("");
 
   return `
-    <h3 style="margin:0 0 10px; font-size:15px; font-weight:600; color:#111827;">Triggered Products (${rows.length})</h3>
+    <h3 style="margin:0 0 10px; font-size:15px; font-weight:600; color:#111827;">Product Transitions (${rows.length})</h3>
     <table style="width:100%; border-collapse:collapse; margin-bottom:26px;">
       <thead>
         <tr>
@@ -2629,6 +2643,7 @@ function buildCodProductsTable(eligibleResults) {
           <th style="${COD_TABLE_HEADER_CELL} text-align:right;">7d Avg</th>
           <th style="${COD_TABLE_HEADER_CELL} text-align:right;">Delta</th>
           <th style="${COD_TABLE_HEADER_CELL} text-align:right;">Orders</th>
+          <th style="${COD_TABLE_HEADER_CELL} text-align:center;">Status</th>
         </tr>
       </thead>
       <tbody>${bodyRows}</tbody>
@@ -2636,20 +2651,20 @@ function buildCodProductsTable(eligibleResults) {
   `;
 }
 
-function buildCodDigestEmail(eligibleResults, runDate) {
-  const brandCount = eligibleResults.length;
+function buildCodDigestEmail(brandEntries, runDate) {
+  const brandCount = brandEntries.length;
   const brandLabel = brandCount === 1 ? "brand" : "brands";
-  const brandNames = eligibleResults.map((r) => String(r.brand || "").toUpperCase()).join(", ");
-  const subject = `[COD Monitor] Daily Report | ${runDate} | ${brandCount} ${brandLabel}: ${brandNames}`;
+  const brandNames = brandEntries.map((e) => String(e.brand || "").toUpperCase()).join(", ");
+  const subject = `[COD Monitor] State Change | ${runDate} | ${brandCount} ${brandLabel}: ${brandNames}`;
 
-  const overallTable = buildCodOverallTable(eligibleResults);
-  const productsTable = buildCodProductsTable(eligibleResults);
+  const overallTable = buildCodOverallTable(brandEntries);
+  const productsTable = buildCodProductsTable(brandEntries);
   // One labelled row of KPI cards per brand, above the tables.
-  const kpiSection = eligibleResults
-    .map((r) =>
+  const kpiSection = brandEntries
+    .map((e) =>
       renderKpiCards(
-        r.kpis,
-        `${String(r.brand || "").toUpperCase()} · Today so far (IST) · vs 7-day avg`,
+        e.kpis,
+        `${String(e.brand || "").toUpperCase()} · Today so far (IST) · vs 7-day avg`,
       ),
     )
     .join("");
@@ -2661,9 +2676,9 @@ function buildCodDigestEmail(eligibleResults, runDate) {
       border-radius:12px; overflow:hidden; box-shadow:0 6px 25px rgba(0,0,0,0.08);">
 
       <div style="background:#dc2626; padding:26px 32px; color:#ffffff;">
-        <h2 style="margin:0; font-size:24px; font-weight:600;">⚠️ COD Monitor Daily Report</h2>
+        <h2 style="margin:0; font-size:24px; font-weight:600;">⚠️ COD Monitor — State Change</h2>
         <p style="margin:6px 0 0; font-size:14px; opacity:0.9;">
-          Cash-on-delivery mix moved beyond configured thresholds for ${brandCount} ${brandLabel} on ${escapeHtml(runDate)}.
+          Cash-on-delivery mix changed severity (new breach, escalation, or recovery) for ${brandCount} ${brandLabel} on ${escapeHtml(runDate)}.
         </p>
       </div>
 
@@ -2694,12 +2709,23 @@ function buildCodDigestEmail(eligibleResults, runDate) {
 }
 
 /* -------------------------------------------------------
-   COD alert spam protection: per-(brand, level, product_id)
-   cooldown, tracked in a dedicated Mongo collection so repeat
-   findings (e.g. from an hourly-triggered run, or a sustained
-   day-long spike) don't re-email every run.
+   COD alert state machine: per-(brand, level, product_id), tracked in
+   a dedicated Mongo collection. Fires only on a genuine NORMAL<->
+   TRIGGERED<->CRITICAL transition (reusing hasStateChanged()'s
+   allowed-transition table), not on every run a breach persists --
+   replaces the old flat 24h time-based cooldown entirely.
 --------------------------------------------------------*/
-const COD_ALERT_COOLDOWN_HOURS = 24;
+const CRITICAL_THRESHOLD_MULTIPLIER = 2; // keep in sync with discount_monitor/config.py's constant of the same name
+const COD_GUARD_DURATION_MS = 10 * 60 * 1000; // short: only covers a duplicate dispatch if this run's own write silently fails
+
+// "Higher is worse" classifier shared by COD and discount state evaluation.
+function classifyState(value, threshold, criticalMultiplier = CRITICAL_THRESHOLD_MULTIPLIER) {
+  if (value == null || threshold == null || Number.isNaN(Number(value))) return "NORMAL";
+  const v = Number(value);
+  if (v > threshold * criticalMultiplier) return "CRITICAL";
+  if (v > threshold) return "TRIGGERED";
+  return "NORMAL";
+}
 
 async function getCodAlertHistoryCollection() {
   if (!mongoClient) {
@@ -2725,58 +2751,42 @@ function codGuardKey(brand, alert) {
   return `cod:${key.brand}:${key.level}:${key.product_id ?? ""}`;
 }
 
-async function filterCodAlertsByCooldown(brand, alerts) {
-  const collection = await getCodAlertHistoryCollection();
-  const eligible = [];
+// Decide-only: reads previous current_state, classifies the new one, and
+// returns whether this is a fire-worthy transition. Does NOT write --
+// the caller arms the guard and persists only after the email has been
+// built, mirroring the old cooldown flow's ordering.
+async function evaluateCodState(brand, identityAlert, currentValue, threshold) {
+  const key = codAlertKey(brand, identityAlert);
+  const guardKey = codGuardKey(brand, identityAlert);
 
-  for (const alert of alerts) {
-    const key = codAlertKey(brand, alert);
-    const guardKey = codGuardKey(brand, alert);
-
-    // In-memory fallback guard: catches a repeat send when a prior
-    // recordCodAlertsFired() write silently failed, so the DB-side
-    // cooldown below couldn't see it.
-    if (isGuardActive(guardKey)) {
-      console.log(
-        `   🛡️  [COD] In-memory guard active for ${brand} [${key.level}${key.product_id ? `:${key.product_id}` : ""}] — suppressing (likely a recent Mongo write failure).`,
-      );
-      continue;
-    }
-
-    const last = await collection.findOne(key, { sort: { triggered_at: -1 } });
-
-    if (last) {
-      const hoursSince = (Date.now() - new Date(last.triggered_at).getTime()) / 3600000;
-      if (hoursSince < COD_ALERT_COOLDOWN_HOURS) {
-        console.log(
-          `   ❄️  [COD] Cooldown active for ${brand} [${key.level}${key.product_id ? `:${key.product_id}` : ""}] — last fired ${hoursSince.toFixed(2)}h ago, requires ${COD_ALERT_COOLDOWN_HOURS}h. Skipping.`,
-        );
-        continue;
-      }
-    }
-
-    eligible.push(alert);
+  if (isGuardActive(guardKey)) {
+    console.log(
+      `   🛡️  [COD] In-memory guard active for ${brand} [${key.level}${key.product_id ? `:${key.product_id}` : ""}] — suppressing (likely a recent Mongo write failure).`,
+    );
+    return { fire: false, key, guardKey, previousState: null, newState: null };
   }
 
-  return eligible;
+  const collection = await getCodAlertHistoryCollection();
+  const doc = await collection.findOne(key);
+  const previousState = doc?.current_state || "NORMAL";
+  const newState = classifyState(currentValue, threshold);
+  const fire = hasStateChanged(previousState, newState);
+
+  if (!fire) {
+    console.log(
+      `   ⏸️  [COD] No transition for ${brand} [${key.level}${key.product_id ? `:${key.product_id}` : ""}] — state stays ${newState}.`,
+    );
+  }
+
+  return { fire, key, guardKey, previousState, newState };
 }
 
-async function recordCodAlertsFired(brand, alerts) {
-  if (!alerts.length) return;
+async function persistCodState(key, newState) {
   const collection = await getCodAlertHistoryCollection();
-  const now = new Date();
-
-  await collection.bulkWrite(
-    alerts.map((alert) => {
-      const key = codAlertKey(brand, alert);
-      return {
-        updateOne: {
-          filter: key,
-          update: { $set: { ...key, triggered_at: now } },
-          upsert: true,
-        },
-      };
-    }),
+  await collection.updateOne(
+    key,
+    { $set: { ...key, current_state: newState, triggered_at: new Date() } },
+    { upsert: true },
   );
 }
 
@@ -2787,51 +2797,91 @@ async function sendCodMonitorEmails(body) {
     return { attempted: 0, sent: 0, suppressed: 0, brandsIncluded: 0 };
   }
 
-  const candidateResults = body.brand_results.filter(
-    (result) => result.status === "ok" && Array.isArray(result.alerts) && result.alerts.length > 0,
-  );
-
-  const eligibleResults = [];
+  const okResults = body.brand_results.filter((result) => result.status === "ok");
+  const brandEntries = [];
   let suppressed = 0;
 
-  for (const result of candidateResults) {
-    const eligibleAlerts = await filterCodAlertsByCooldown(result.brand, result.alerts);
-    suppressed += result.alerts.length - eligibleAlerts.length;
+  for (const result of okResults) {
+    const thresholds = result.thresholds || {};
+    const transitions = [];
 
-    if (eligibleAlerts.length) {
-      eligibleResults.push({ ...result, alerts: eligibleAlerts });
-    } else {
-      console.log(`   ❄️  [COD] All findings for ${result.brand} suppressed by cooldown — excluded from digest.`);
+    if (result.overall && thresholds.overall != null) {
+      const identityAlert = { level: "overall", product_id: null };
+      const evalResult = await evaluateCodState(result.brand, identityAlert, result.overall.delta_cod_pct, thresholds.overall);
+      if (evalResult.fire) {
+        transitions.push({
+          ...evalResult,
+          level: "overall",
+          delta: result.overall.delta_cod_pct,
+          today_cod_pct: result.overall.today_cod_pct,
+          baseline_cod_pct: result.overall.baseline_cod_pct,
+          today_total_orders: result.overall.today_total_orders,
+        });
+      } else {
+        suppressed += 1;
+      }
+    }
+
+    for (const row of result.product_rows || []) {
+      if (row.delta_cod_pct == null) continue;
+      const identityAlert = { level: "product", product_id: row.product_id };
+      const evalResult = await evaluateCodState(result.brand, identityAlert, row.delta_cod_pct, thresholds.product);
+      if (evalResult.fire) {
+        transitions.push({
+          ...evalResult,
+          level: "product",
+          product_id: row.product_id,
+          product_name: row.product_name,
+          delta: row.delta_cod_pct,
+          today_cod_pct: row.today_cod_pct,
+          baseline_cod_pct: row.baseline_cod_pct,
+          today_total_orders: row.today_total_orders,
+        });
+      } else {
+        suppressed += 1;
+      }
+    }
+
+    if (transitions.length) {
+      brandEntries.push({
+        brand: result.brand,
+        overall: result.overall,
+        thresholds,
+        kpis: result.kpis,
+        transitions,
+      });
     }
   }
 
-  if (!eligibleResults.length) {
-    console.log("   [COD] No brands survived cooldown filtering — digest email skipped.");
+  if (!brandEntries.length) {
+    console.log("   [COD] No state transitions this run — digest email skipped.");
     return { attempted: 0, sent: 0, suppressed, brandsIncluded: 0 };
   }
 
   // Arm the guard before sending — before any Mongo write for this batch is
-  // even attempted — so a failed recordCodAlertsFired() below doesn't leave
-  // the next run able to slip these same findings back through.
-  for (const result of eligibleResults) {
-    for (const alert of result.alerts) {
-      armGuard(codGuardKey(result.brand, alert), COD_ALERT_COOLDOWN_HOURS * 3600000);
+  // even attempted — so a failed persistCodState() below doesn't leave the
+  // next run able to slip these same transitions back through.
+  for (const entry of brandEntries) {
+    for (const t of entry.transitions) {
+      armGuard(t.guardKey, COD_GUARD_DURATION_MS);
     }
   }
 
-  const { subject, html } = buildCodDigestEmail(eligibleResults, body.run_date);
+  const { subject, html } = buildCodDigestEmail(brandEntries, body.run_date);
   const finalSubject = TEST_MODE ? `[TEST] ${subject}` : subject;
   await sendEmail({ to: recipients }, finalSubject, html);
 
-  for (const result of eligibleResults) {
-    try {
-      await recordCodAlertsFired(result.brand, result.alerts);
-    } catch (err) {
-      await notifyMongoWriteFailure(`recordCodAlertsFired(brand=${result.brand})`, err);
+  for (const entry of brandEntries) {
+    for (const t of entry.transitions) {
+      try {
+        await persistCodState(t.key, t.newState);
+      } catch (err) {
+        await notifyMongoWriteFailure(`persistCodState(brand=${entry.brand}, level=${t.level})`, err);
+      }
     }
   }
 
-  return { attempted: 1, sent: 1, suppressed, brandsIncluded: eligibleResults.length };
+  return { attempted: 1, sent: 1, suppressed, brandsIncluded: brandEntries.length };
 }
 
 async function processCodMonitorResults(payload) {
@@ -2867,16 +2917,17 @@ async function processCodMonitorResults(payload) {
     );
   });
 
+  // Always evaluate (not gated on total_alerts > 0): a brand with zero raw
+  // breaches this run may still be a TRIGGERED/CRITICAL -> NORMAL recovery,
+  // which the state machine needs to see to fire the "resolved" email.
   let emailDelivery = { attempted: 0, sent: 0, suppressed: 0 };
-  if (!body.dry_run && Number(body.total_alerts || 0) > 0) {
+  if (!body.dry_run) {
     emailDelivery = await sendCodMonitorEmails(body);
     console.log(
-      `   📧 [COD] Email delivery: sent=${emailDelivery.sent} (brands_included=${emailDelivery.brandsIncluded}) suppressed_by_cooldown=${emailDelivery.suppressed}`,
+      `   📧 [COD] Email delivery: sent=${emailDelivery.sent} (brands_included=${emailDelivery.brandsIncluded}) no_transition=${emailDelivery.suppressed}`,
     );
-  } else if (body.dry_run) {
-    console.log("   COD dry-run detected: COD alert emails suppressed.");
   } else {
-    console.log("   No COD alerts triggered: no COD emails sent.");
+    console.log("   COD dry-run detected: COD alert emails suppressed.");
   }
 
   return {
@@ -2894,17 +2945,147 @@ async function processCodMonitorResults(payload) {
 }
 
 /* -------------------------------------------------------
-   Discount Monitor integration (discount_monitor/run.py --json-output)
-   Mirrors the COD monitor bridge: Python does the detection/thresholds
-   and its own per-brand+alert_type cooldown (via discount_alerts table);
-   Node renders the structured brand_results into one readable email per run
-   (see utils/discountMonitorEmail.js).
+   Discount Monitor state machine (per brand+alert_type, mirrors
+   evaluateCodState above). Python (discount_monitor/) now reports raw
+   current-value evaluation data for every brand every run, including
+   brands with no breach -- Node is the sole decider of whether an email
+   fires, based on NORMAL<->TRIGGERED<->CRITICAL transitions only. The
+   old flat 1h MySQL cooldown is gone; MySQL discount_alerts stays as a
+   continuous audit log, written by Python for every raw breach.
 --------------------------------------------------------*/
-async function sendDiscountMonitorEmail(body) {
+const DISCOUNT_GUARD_DURATION_MS = 10 * 60 * 1000; // short: only covers a duplicate dispatch if this run's own write silently fails
+
+async function getDiscountAlertStateCollection() {
+  if (!mongoClient) {
+    if (!process.env.MONGO_URI) {
+      throw new Error("MONGO_URI not set");
+    }
+    mongoClient = new MongoClient(process.env.MONGO_URI);
+    await mongoClient.connect();
+  }
+  return mongoClient.db().collection("discount_alert_state");
+}
+
+function discountStateKey(brand, alertType) {
+  return { _id: `${brand}:${alertType}`, brand, alert_type: alertType };
+}
+
+function discountGuardKey(brand, alertType) {
+  return `discount:${brand}:${alertType}`;
+}
+
+// DISCOUNT_OUTPACING_SALES is defined by two ANDed thresholds, not one
+// comparable value. Reduce it to a single severity ratio -- the binding
+// (smaller) of the two "how many multiples past its own threshold" ratios,
+// since both must hold for the alert to be meaningful -- then classify
+// that ratio against 1.0 (TRIGGERED) / CRITICAL_THRESHOLD_MULTIPLIER
+// (CRITICAL), reusing the same classifyState() as every other alert type.
+function discountOutpaceSeverity(raw) {
+  if (!raw) return null;
+  const { disc_growth, sales_growth, min_growth_threshold, gap_threshold } = raw;
+  if (disc_growth == null || sales_growth == null || !min_growth_threshold || !gap_threshold) {
+    return null;
+  }
+  return Math.min(disc_growth / min_growth_threshold, (disc_growth - sales_growth) / gap_threshold);
+}
+
+async function evaluateDiscountAlertState(brand, alertType, currentValue, threshold) {
+  const key = discountStateKey(brand, alertType);
+  const guardKey = discountGuardKey(brand, alertType);
+
+  if (isGuardActive(guardKey)) {
+    console.log(`   🛡️  [Discount] In-memory guard active for ${brand} [${alertType}] — suppressing (likely a recent Mongo write failure).`);
+    return { fire: false, key, guardKey, previousState: null, newState: null };
+  }
+
+  const collection = await getDiscountAlertStateCollection();
+  const doc = await collection.findOne({ _id: key._id });
+  const previousState = doc?.current_state || "NORMAL";
+  const newState = classifyState(currentValue, threshold);
+  const fire = hasStateChanged(previousState, newState);
+
+  if (!fire) {
+    console.log(`   ⏸️  [Discount] No transition for ${brand} [${alertType}] — state stays ${newState}.`);
+  }
+
+  return { fire, key, guardKey, previousState, newState };
+}
+
+async function persistDiscountAlertState(key, newState) {
+  const collection = await getDiscountAlertStateCollection();
+  await collection.updateOne(
+    { _id: key._id },
+    { $set: { ...key, current_state: newState, updated_at: new Date() } },
+    { upsert: true },
+  );
+}
+
+// Per brand: evaluate every state-tracked alert type's transition, plus the
+// one-shot NEW_CODE discovery event (not state-tracked -- a code can't
+// "un-appear", so it's represented as an always-NORMAL->TRIGGERED entry
+// whenever present, with no persisted state and no guard).
+async function evaluateDiscountTransitions(brandResults) {
+  const brandEntries = [];
+  let noTransitionCount = 0;
+
+  for (const br of brandResults) {
+    const rawEval = br.raw_eval || {};
+    const transitions = [];
+
+    const rateEval = rawEval.DISCOUNT_RATE_SPIKE;
+    if (rateEval) {
+      const r = await evaluateDiscountAlertState(br.brand, "DISCOUNT_RATE_SPIKE", rateEval.value, rateEval.threshold);
+      if (r.fire) transitions.push({ alertType: "DISCOUNT_RATE_SPIKE", ...r });
+      else noTransitionCount += 1;
+    }
+
+    const usageEval = rawEval.USAGE_RATE_SPIKE;
+    if (usageEval) {
+      const r = await evaluateDiscountAlertState(br.brand, "USAGE_RATE_SPIKE", usageEval.value, usageEval.threshold);
+      if (r.fire) transitions.push({ alertType: "USAGE_RATE_SPIKE", ...r });
+      else noTransitionCount += 1;
+    }
+
+    const outpaceSeverity = discountOutpaceSeverity(rawEval.DISCOUNT_OUTPACING_SALES);
+    if (outpaceSeverity != null) {
+      const r = await evaluateDiscountAlertState(br.brand, "DISCOUNT_OUTPACING_SALES", outpaceSeverity, 1);
+      if (r.fire) transitions.push({ alertType: "DISCOUNT_OUTPACING_SALES", ...r });
+      else noTransitionCount += 1;
+    }
+
+    const newCodeFiring = (br.alerts_fired || []).includes("NEW_CODE") && (br.new_codes || []).length > 0;
+    if (newCodeFiring) {
+      transitions.push({
+        alertType: "NEW_CODE",
+        key: null,
+        guardKey: null,
+        previousState: "NORMAL",
+        newState: "TRIGGERED",
+      });
+    }
+
+    if (transitions.length) {
+      brandEntries.push({ ...br, transitions });
+    }
+  }
+
+  return { brandEntries, noTransitionCount };
+}
+
+async function sendDiscountMonitorEmail(body, brandEntries) {
   const recipients = TEST_MODE ? [TEST_EMAIL] : parseJsonArrayEnv("DISCOUNT_ALERT_IDS");
   if (!recipients.length) {
     console.warn("⚠️ Discount monitor email skipped: DISCOUNT_ALERT_IDS is empty.");
     return { attempted: 0, sent: 0 };
+  }
+
+  // Arm guards before sending — before any Mongo write for this batch is
+  // even attempted — so a failed persistDiscountAlertState() below doesn't
+  // leave the next run able to slip these same transitions back through.
+  for (const br of brandEntries) {
+    for (const t of br.transitions) {
+      if (t.guardKey) armGuard(t.guardKey, DISCOUNT_GUARD_DURATION_MS);
+    }
   }
 
   const istHour = Number(
@@ -2914,9 +3095,21 @@ async function sendDiscountMonitorEmail(body) {
       hour12: false,
     }).format(new Date()),
   );
-  const { subject, html } = buildDiscountMonitorEmail(body, { istHour });
+  const { subject, html } = buildDiscountMonitorEmail({ ...body, brand_results: brandEntries }, { istHour });
   const finalSubject = TEST_MODE ? `[TEST] ${subject}` : subject;
   await sendEmail({ to: recipients }, finalSubject, html);
+
+  for (const br of brandEntries) {
+    for (const t of br.transitions) {
+      if (!t.key) continue; // NEW_CODE: no persisted state
+      try {
+        await persistDiscountAlertState(t.key, t.newState);
+      } catch (err) {
+        await notifyMongoWriteFailure(`persistDiscountAlertState(brand=${br.brand}, alertType=${t.alertType})`, err);
+      }
+    }
+  }
+
   return { attempted: 1, sent: 1 };
 }
 
@@ -2937,16 +3130,26 @@ async function processDiscountMonitorResults(payload) {
     console.log(`   Flagged brands: ${body.flagged_brands.join(", ")}`);
   }
 
+  // Always evaluate every brand (not gated on flagged_count > 0): a brand
+  // with zero raw breaches this run may still be a TRIGGERED/CRITICAL ->
+  // NORMAL recovery, which the state machine needs to see to fire the
+  // "resolved" email.
   let emailDelivery = { attempted: 0, sent: 0 };
-  if (!body.dry_run && Number(body.flagged_count || 0) > 0) {
-    emailDelivery = await sendDiscountMonitorEmail(body);
+  let transitionCount = 0;
+  if (!body.dry_run) {
+    const brandResults = Array.isArray(body.brand_results) ? body.brand_results : [];
+    const { brandEntries, noTransitionCount } = await evaluateDiscountTransitions(brandResults);
+    transitionCount = brandEntries.reduce((sum, br) => sum + br.transitions.length, 0);
+    if (brandEntries.length) {
+      emailDelivery = await sendDiscountMonitorEmail(body, brandEntries);
+    } else {
+      console.log(`   [Discount Monitor] No state transitions this run (checked ${noTransitionCount} alert evaluations) — email skipped.`);
+    }
     console.log(
-      `   📧 [Discount Monitor] Email delivery: attempted=${emailDelivery.attempted} sent=${emailDelivery.sent}`,
+      `   📧 [Discount Monitor] Email delivery: attempted=${emailDelivery.attempted} sent=${emailDelivery.sent} transitions=${transitionCount}`,
     );
-  } else if (body.dry_run) {
-    console.log("   Discount monitor dry-run detected: email suppressed.");
   } else {
-    console.log("   No brands flagged: no discount monitor email sent.");
+    console.log("   Discount monitor dry-run detected: email suppressed.");
   }
 
   return {
@@ -2960,6 +3163,7 @@ async function processDiscountMonitorResults(payload) {
     normalCount: Number(body.normal_count || 0),
     skippedCount: Number(body.skipped_count || 0),
     totalAlerts: Number(body.total_alerts || 0),
+    transitionCount,
     emailDelivery,
   };
 }
@@ -2975,4 +3179,7 @@ module.exports = {
   hasStateChanged,
   selectEmailTemplate,
   updateRuleState,
+  classifyState,
+  discountOutpaceSeverity,
+  CRITICAL_THRESHOLD_MULTIPLIER,
 };

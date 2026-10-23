@@ -24,7 +24,6 @@ from db import ensure_alerts_table, get_connection
 from detect import (
     build_snapshot,
     decide_alerts,
-    is_on_cooldown,
     store_alert,
     top_code,
     new_code_check,
@@ -88,11 +87,22 @@ def _json_safe(value):
 
 
 def _brand_result_payload(result: dict) -> dict:
-    """Structured per-brand data for the Node email builder."""
+    """Structured per-brand data for the Node email builder/state machine.
+    Present for EVERY non-skipped brand, every run -- including brands with
+    no breach this run -- so the Node-side state machine can see a
+    TRIGGERED/CRITICAL -> NORMAL recovery, not just new breaches."""
+    alerts_fired = result["alerts_fired"]
+    if HARD_ALERTS & set(alerts_fired):
+        tier = "ALERT"
+    elif alerts_fired:
+        tier = "WATCH"
+    else:
+        tier = "NORMAL"
     return {
         "brand": result["snapshot"]["brand"],
-        "tier": "ALERT" if HARD_ALERTS & set(result["alerts_fired"]) else "WATCH",
-        "alerts_fired": result["alerts_fired"],
+        "tier": tier,
+        "alerts_fired": alerts_fired,
+        "raw_eval": result["raw_eval"],
         "snapshot": result["snapshot"],
         "top_code": result.get("top_code"),
         "new_codes": result.get("new_codes", []),
@@ -116,7 +126,15 @@ def _metric_for_alert_type(snapshot, alert_type, new_codes=None):
 
 
 def process_brand(brand_name: str, db_name: str):
-    """Returns ('flagged', result_dict) / ('normal', brand_name) / ('skipped', brand_name)."""
+    """Returns ('evaluated', result_dict) / ('skipped', brand_name).
+
+    'evaluated' covers every brand with enough orders to compute a snapshot --
+    including ones with zero breaches this run. The Node-side state machine
+    needs that "currently clean" signal every run to detect a recovery
+    transition, not just a new breach (see run_monitor()/alertEngine.js).
+    Cooldown filtering is gone: every raw breach is reported and stored;
+    whether an email actually fires is entirely the Node state machine's call.
+    """
     conn = None
     try:
         conn = get_connection(db_name)
@@ -126,29 +144,33 @@ def process_brand(brand_name: str, db_name: str):
         if snapshot is None:
             return "skipped", brand_name
 
-        alerts_fired = decide_alerts(snapshot)
+        alerts_fired, raw_eval = decide_alerts(snapshot)
 
         new_codes = new_code_check(conn, snapshot["current"])
         if new_codes:
             alerts_fired = alerts_fired + ["NEW_CODE"]
 
-        if not alerts_fired:
-            log.info("[%s] No alerts this run.", brand_name)
-            return "normal", brand_name
-
-        # drop alert types currently on cooldown
-        active_alerts = [a for a in alerts_fired if not is_on_cooldown(conn, brand_name, a)]
-        if not active_alerts:
-            log.info("[%s] All fired alerts on cooldown, treating as normal for this run.", brand_name)
-            return "normal", brand_name
-
-        for alert_type in active_alerts:
+        for alert_type in alerts_fired:
             current_val, baseline_val, delta = _metric_for_alert_type(snapshot, alert_type, new_codes)
             store_alert(
                 conn, brand_name, alert_type,
                 current_val or 0, baseline_val or 0, delta,
                 f"{alert_type} for {brand_name}",
             )
+
+        if not alerts_fired:
+            log.info("[%s] No alerts this run.", brand_name)
+            result = {
+                "snapshot": snapshot,
+                "alerts_fired": [],
+                "raw_eval": raw_eval,
+                "top_code": None,
+                "new_codes": [],
+                "utm_rows": [],
+                "flagged_sources": [],
+                "kpis": None,
+            }
+            return "evaluated", result
 
         code = top_code(conn, snapshot["current"])
         utm_rows, flagged_sources = utm_source_breakdown(conn)
@@ -157,14 +179,15 @@ def process_brand(brand_name: str, db_name: str):
 
         result = {
             "snapshot": snapshot,
-            "alerts_fired": active_alerts,
+            "alerts_fired": alerts_fired,
+            "raw_eval": raw_eval,
             "top_code": code,
-            "new_codes": new_codes if "NEW_CODE" in active_alerts else [],
+            "new_codes": new_codes if "NEW_CODE" in alerts_fired else [],
             "utm_rows": utm_rows,
             "flagged_sources": flagged_sources,
             "kpis": fetch_kpis(conn),
         }
-        return "flagged", result
+        return "evaluated", result
 
     except Exception as exc:
         log.error("[%s] Failed: %s", brand_name, exc, exc_info=True)
@@ -187,15 +210,18 @@ def run_monitor(brand_filter=None, dry_run=False, json_output=False):
     flagged_results = []
     normal_brands = []
     skipped_brands = []
+    evaluated_results = []  # every evaluated brand, flagged or not -- for Node's state machine
 
     for brand in brands_to_run:
         log.info("\n[%s] Processing...", brand["name"])
         status, payload = process_brand(brand["name"], brand["db"])
-        if status == "flagged":
+        if status == "evaluated":
             payload["snapshot"]["brand"] = brand["name"]
-            flagged_results.append(payload)
-        elif status == "normal":
-            normal_brands.append(brand["name"])
+            evaluated_results.append(payload)
+            if payload["alerts_fired"]:
+                flagged_results.append(payload)
+            else:
+                normal_brands.append(brand["name"])
         else:
             skipped_brands.append(brand["name"])
 
@@ -221,7 +247,10 @@ def run_monitor(brand_filter=None, dry_run=False, json_output=False):
             "flagged_brands": [r["snapshot"]["brand"] for r in flagged_results],
             "normal_brands": normal_brands,
             "skipped_brands": skipped_brands,
-            "brand_results": [_brand_result_payload(r) for r in flagged_results],
+            # Every evaluated brand, not just flagged ones -- Node's state
+            # machine needs every brand's raw_eval every run to detect
+            # recoveries, not just new breaches.
+            "brand_results": [_brand_result_payload(r) for r in evaluated_results],
         }
         log.info(
             "Discount monitor JSON payload prepared: brands=%d flagged=%d alerts=%d dry_run=%s",

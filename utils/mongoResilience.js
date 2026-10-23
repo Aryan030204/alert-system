@@ -46,7 +46,10 @@ async function ensureMongoIndexes(db) {
   const specs = [
     { collection: "alert_history", field: "triggered_at", expireAfterSeconds: (90 * DAY_MS) / 1000 },
     { collection: "push_notifications", field: "created_at", expireAfterSeconds: (30 * DAY_MS) / 1000 },
-    { collection: "cod_alert_history", field: "triggered_at", expireAfterSeconds: (60 * DAY_MS) / 1000 },
+    // cod_alert_history and discount_alert_state intentionally have no TTL:
+    // both now double as a live current_state cursor (one doc per identity,
+    // continuously overwritten), not an append-only history log. Expiring a
+    // doc mid-breach would silently reset state back to implicit NORMAL.
   ];
 
   for (const { collection, field, expireAfterSeconds } of specs) {

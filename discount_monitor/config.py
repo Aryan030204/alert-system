@@ -126,9 +126,19 @@ THRESHOLDS = {
     # share by more than this many percentage points, show both numbers;
     # otherwise show one blended (amount) number to avoid clutter
     "divergence_pp_to_split": 15,
-
-    "alert_cooldown_hrs": 1,      # same brand+alert_type won't re-notify within this window
 }
+
+# State machine: CRITICAL = this multiple of the existing (TRIGGERED-equivalent)
+# threshold above, for every threshold value that feeds a state-tracked alert
+# type. One knob instead of duplicated literals -- see critical_of() below.
+# Node (alertEngine.js) has its own copy of this same constant/name; keep them
+# in sync if this changes.
+CRITICAL_THRESHOLD_MULTIPLIER = 2
+
+
+def critical_of(value):
+    """Derive a CRITICAL-tier threshold from an existing TRIGGERED-tier one."""
+    return value * CRITICAL_THRESHOLD_MULTIPLIER
 
 ENABLED_ALERT_TYPES = {
     "DISCOUNT_RATE_SPIKE": True,

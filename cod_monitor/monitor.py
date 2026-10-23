@@ -95,6 +95,12 @@ def _product_alerts(rows: list[dict], threshold: float, brand: str) -> list[dict
 def process_brand(brand_name: str, brand_cfg: dict) -> dict[str, Any]:
     """
     Run all checks for a single brand and return structured results.
+
+    overall_row/product_rows are populated unconditionally below, regardless
+    of whether _overall_alert()/_product_alerts() actually flags a breach --
+    the Node-side state machine (alertEngine.js) needs every identity's raw
+    current value every run, not just breaching ones, to detect a recovery
+    transition (TRIGGERED/CRITICAL -> NORMAL), not just a new breach.
     """
     result: dict[str, Any] = {
         "brand": brand_name,

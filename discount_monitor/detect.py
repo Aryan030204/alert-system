@@ -8,7 +8,7 @@
 
 import logging
 
-from config import ENABLED_ALERT_TYPES, THRESHOLDS
+from config import ENABLED_ALERT_TYPES, THRESHOLDS, critical_of
 from fetch import (
     fetch_current_totals,
     fetch_baseline_totals,
@@ -35,25 +35,13 @@ def pct_delta(current: float, baseline: float):
     return (current - baseline) / baseline * 100
 
 
-# -- Cooldown / storage --------------------------------------------------
-
-def is_on_cooldown(conn, brand: str, alert_type: str) -> bool:
-    # Compared inside the DB: alert_time is written with the DB's NOW(), so the
-    # comparison must use that same clock, not the app machine's timezone.
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute(
-        """
-        SELECT MAX(alert_time) IS NOT NULL
-               AND NOW() < DATE_ADD(MAX(alert_time), INTERVAL %s HOUR) AS on_cooldown
-        FROM discount_alerts
-        WHERE brand = %s AND alert_type = %s
-        """,
-        (THRESHOLDS["alert_cooldown_hrs"], brand, alert_type),
-    )
-    row = cursor.fetchone()
-    cursor.close()
-    return bool(row and row["on_cooldown"])
-
+# -- Storage --------------------------------------------------------------
+# NOTE: the old flat time-based cooldown (is_on_cooldown(), keyed on
+# brand+alert_type) has been removed. Firing is now gated by the Node-side
+# state machine (transition-only: fires on NORMAL<->TRIGGERED<->CRITICAL
+# changes, silent otherwise) -- see run.py/alertEngine.js. store_alert() is
+# now called for every raw breach every run, making discount_alerts a
+# continuous audit log rather than a cooldown-thinned one.
 
 def store_alert(conn, brand, alert_type, current_value, baseline_value, delta_pct, message):
     cursor = conn.cursor()
@@ -134,34 +122,40 @@ def build_snapshot(conn, brand_name: str, as_of: str = None):
     return snapshot
 
 
-def decide_alerts(snapshot: dict) -> list[str]:
-    """Return the list of alert types that fire for this brand's snapshot."""
+def decide_alerts(snapshot: dict) -> tuple[list[str], dict]:
+    """Return (fired, raw_eval):
+    - fired: alert types whose raw TRIGGERED-tier threshold is breached this run.
+    - raw_eval: per-state-tracked-alert-type current value + threshold, for
+      EVERY alert type regardless of whether it fired -- the Node-side state
+      machine needs this every run (including runs where nothing breaches) to
+      detect a recovery (TRIGGERED/CRITICAL -> NORMAL), not just a new breach.
+      NEW_CODE is intentionally excluded -- it's a one-shot discovery event
+      with no "back to normal" concept, so it isn't state-tracked.
+    """
     fired = []
-
-    # Original relative-delta check, kept for reference. Replaced below by an
-    # absolute per-brand threshold for brands listed in
-    # THRESHOLDS["discount_rate_absolute_pct"]; brands not listed there
-    # (e.g. BBB) still use this relative logic.
-    # rate_delta = snapshot["discount_rate_delta"]
-    # if (
-    #     is_enabled("DISCOUNT_RATE_SPIKE")
-    #     and rate_delta is not None
-    #     and rate_delta >= THRESHOLDS["discount_rate_delta_pct"]
-    # ):
-    #     fired.append("DISCOUNT_RATE_SPIKE")
+    raw_eval = {}
 
     absolute_threshold = THRESHOLDS["discount_rate_absolute_pct"].get(snapshot["brand"])
-    if is_enabled("DISCOUNT_RATE_SPIKE"):
-        if absolute_threshold is not None:
-            if snapshot["discount_rate_current"] >= absolute_threshold:
-                fired.append("DISCOUNT_RATE_SPIKE")
-        else:
-            rate_delta = snapshot["discount_rate_delta"]
-            if rate_delta is not None and rate_delta >= THRESHOLDS["discount_rate_delta_pct"]:
-                fired.append("DISCOUNT_RATE_SPIKE")
+    if absolute_threshold is not None:
+        rate_value = snapshot["discount_rate_current"]
+        rate_threshold = absolute_threshold
+    else:
+        # Relative-delta fallback for brands with no per-brand absolute
+        # threshold (e.g. BBB): (current - baseline) / baseline * 100.
+        rate_value = snapshot["discount_rate_delta"]
+        rate_threshold = THRESHOLDS["discount_rate_delta_pct"]
+    raw_eval["DISCOUNT_RATE_SPIKE"] = {"value": rate_value, "threshold": rate_threshold}
+    if is_enabled("DISCOUNT_RATE_SPIKE") and rate_value is not None and rate_value >= rate_threshold:
+        fired.append("DISCOUNT_RATE_SPIKE")
 
     disc_growth = snapshot["discount_amount_delta"]
     sales_growth = snapshot["sales_delta"]
+    raw_eval["DISCOUNT_OUTPACING_SALES"] = {
+        "disc_growth": disc_growth,
+        "sales_growth": sales_growth,
+        "min_growth_threshold": THRESHOLDS["outpace_min_discount_growth_pct"],
+        "gap_threshold": THRESHOLDS["outpace_gap_pct"],
+    }
     if (
         is_enabled("DISCOUNT_OUTPACING_SALES")
         and disc_growth is not None
@@ -172,6 +166,7 @@ def decide_alerts(snapshot: dict) -> list[str]:
         fired.append("DISCOUNT_OUTPACING_SALES")
 
     usage_delta = snapshot["usage_rate_delta"]
+    raw_eval["USAGE_RATE_SPIKE"] = {"value": usage_delta, "threshold": THRESHOLDS["usage_rate_delta_pct"]}
     if (
         is_enabled("USAGE_RATE_SPIKE")
         and usage_delta is not None
@@ -179,7 +174,7 @@ def decide_alerts(snapshot: dict) -> list[str]:
     ):
         fired.append("USAGE_RATE_SPIKE")
 
-    return fired
+    return fired, raw_eval
 
 
 # -- Top discount code (with cardinality guard) --------------------------
@@ -236,11 +231,19 @@ def new_code_check(conn, current_totals: dict, as_of: str = None):
             continue
         orders_share = stats["orders"] / discounted * 100 if discounted else 0
         if orders_share >= THRESHOLDS["new_code_min_share_pct"]:
+            # One-shot alert, not state-tracked (a code can't "un-appear"),
+            # so this is a severity label only -- no transition logic.
+            severity = (
+                "CRITICAL"
+                if orders_share >= critical_of(THRESHOLDS["new_code_min_share_pct"])
+                else "TRIGGERED"
+            )
             flagged.append({
                 "code": code,
                 "orders": stats["orders"],
                 "amount": stats["amount"],
                 "orders_share_pct": orders_share,
+                "severity": severity,
             })
 
     flagged.sort(key=lambda c: -c["orders_share_pct"])

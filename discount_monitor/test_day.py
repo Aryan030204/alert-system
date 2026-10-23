@@ -39,7 +39,8 @@ def process_brand(brand_name: str, db_name: str):
         if snapshot is None:
             return "skipped", brand_name
 
-        alerts_fired = decide_alerts(snapshot)
+        alerts_fired, raw_eval = decide_alerts(snapshot)
+        print(f"[{brand_name}] raw_eval: {raw_eval}")
 
         new_codes = new_code_check(conn, snapshot["current"], as_of=AS_OF)
         if new_codes:
@@ -56,6 +57,7 @@ def process_brand(brand_name: str, db_name: str):
         result = {
             "snapshot": snapshot,
             "alerts_fired": alerts_fired,
+            "raw_eval": raw_eval,
             "top_code": code,
             "new_codes": new_codes,
             "utm_rows": utm_rows,

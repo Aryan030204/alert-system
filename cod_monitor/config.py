@@ -45,6 +45,12 @@ ALERT_ENGINE_COD_MONITOR_URL = os.getenv(
     f"http://localhost:{os.getenv('PORT', '5000')}/cod-monitor/results",
 )
 
+# Doc parity only -- the actual TRIGGERED/CRITICAL classification happens in
+# Node (alertEngine.js), which already receives `thresholds` per brand below
+# and derives `critical = threshold * CRITICAL_THRESHOLD_MULTIPLIER` itself.
+# Keep this constant's name/value in sync with alertEngine.js's copy.
+CRITICAL_THRESHOLD_MULTIPLIER = 2
+
 BRANDS = {
     "VAMA": {
         "db": {
